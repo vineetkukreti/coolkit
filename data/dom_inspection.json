@@ -1,0 +1,894 @@
+{
+  "startupjobs": {
+    "key": "startupjobs",
+    "url": "https://startup.jobs/?q=AI+engineer",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://startup.jobs/?q=AI+engineer"
+  },
+  "f6s": {
+    "key": "f6s",
+    "url": "https://www.f6s.com/jobs?q=AI+engineer",
+    "status": "captcha",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://www.f6s.com/jobs?q=AI+engineer"
+  },
+  "tokyodev": {
+    "key": "tokyodev",
+    "url": "https://www.tokyodev.com/jobs?fully_remote=true",
+    "status": "detected",
+    "selectors": {
+      "card": "div.relative",
+      "title": "h4 a",
+      "company": "[class*='company']",
+      "location": "[class*='loc']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://www.tokyodev.com/jobs?fully_remote=true",
+    "card_count": 276,
+    "job_links_count": 1297,
+    "sample_title": "Engineering Manager",
+    "body_len": 26685
+  },
+  "remoteineurope": {
+    "key": "remoteineurope",
+    "url": "https://remoteineurope.com/",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://remoteineurope.com/"
+  },
+  "mljobs": {
+    "key": "mljobs",
+    "url": "https://machinelearningjobs.com/",
+    "status": "too_short",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://machinelearningjobs.com/"
+  },
+  "nodesk": {
+    "key": "nodesk",
+    "url": "https://nodesk.co/remote-jobs/",
+    "status": "detected",
+    "selectors": {
+      "card": "div.flex",
+      "title": "h3",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://nodesk.co/remote-jobs/",
+    "card_count": 62,
+    "job_links_count": 1,
+    "sample_title": "Search remote jobs",
+    "body_len": 9501
+  },
+  "swissdevjobs": {
+    "key": "swissdevjobs",
+    "url": "https://swissdevjobs.ch/jobs?search=AI+engineer",
+    "status": "empty_body",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://devitjobs.jobcopilot.com/signup?utm_source=sdj_old"
+  },
+  "workinstartups": {
+    "key": "workinstartups",
+    "url": "https://workinstartups.com/job-board/jobs?search=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h2 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "h2 a"
+    },
+    "http_status": 200,
+    "final_url": "https://workinstartups.com/job-board/jobs?search=AI+engineer",
+    "card_count": 10,
+    "job_links_count": 0,
+    "sample_title": "Driving For Cash? Sign Up To Drive With Uber And Earn Flexib",
+    "body_len": 2499
+  },
+  "aijobs": {
+    "key": "aijobs",
+    "url": "https://aijobs.net/",
+    "status": "detected",
+    "selectors": {
+      "card": "li.d-flex",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://aijobs.net/",
+    "card_count": 50,
+    "job_links_count": 50,
+    "sample_title": "",
+    "body_len": 11385
+  },
+  "gulftalent": {
+    "key": "gulftalent",
+    "url": "https://www.gulftalent.com/jobs?keywords=AI+engineer",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://www.gulftalent.com/jobs?keywords=AI+engineer"
+  },
+  "eurotechjobs": {
+    "key": "eurotechjobs",
+    "url": "https://www.eurotechjobs.com/search?q=AI+engineer",
+    "status": "not_found",
+    "selectors": null,
+    "http_status": 404,
+    "final_url": "https://www.eurotechjobs.com/search?q=AI+engineer"
+  },
+  "gaijinpot": {
+    "key": "gaijinpot",
+    "url": "https://jobs.gaijinpot.com/index/index/search/1?keyword=AI+engineer&category_id=32",
+    "status": "detected",
+    "selectors": {
+      "card": "li",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://jobs.gaijinpot.com/en/",
+    "card_count": 94,
+    "job_links_count": 2,
+    "sample_title": "",
+    "body_len": 8880
+  },
+  "aimljobs": {
+    "key": "aimljobs",
+    "url": "https://www.aimljobs.fyi/",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h3",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://www.aimljobs.fyi/",
+    "card_count": 22,
+    "job_links_count": 0,
+    "sample_title": "Frontend Developer (AI Interface)",
+    "body_len": 1404
+  },
+  "timesjobs": {
+    "key": "timesjobs",
+    "url": "https://www.timesjobs.com/candidate/job-search.html?searchType=personal498&txtKeywords=AI+engineer&cboPresFuncArea=35",
+    "status": "connection_error",
+    "selectors": null
+  },
+  "eudatajobs": {
+    "key": "eudatajobs",
+    "url": "https://eudatajobs.com/search?q=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "a.job",
+      "title": "h2",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://eudatajobs.com/search?q=AI+engineer",
+    "card_count": 2,
+    "job_links_count": 125,
+    "sample_title": "AI-Native Cloud Infrastructure Generalist (m/f/d)",
+    "body_len": 21847
+  },
+  "hirist": {
+    "key": "hirist",
+    "url": "https://www.hirist.tech/ai-engineer-jobs",
+    "status": "not_found",
+    "selectors": null,
+    "http_status": 404,
+    "final_url": "https://www.hirist.tech/ai-engineer-jobs"
+  },
+  "foundit": {
+    "key": "foundit",
+    "url": "https://www.foundit.in/srp/results?query=AI+engineer&sort=recency",
+    "status": "detected",
+    "selectors": {
+      "card": "div.accordion-header",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='career']"
+    },
+    "http_status": 200,
+    "final_url": "https://www.foundit.in/srp/results?query=AI+engineer&sort=recency",
+    "card_count": 7,
+    "job_links_count": 1,
+    "sample_title": "",
+    "body_len": 865
+  },
+  "cryptojobslist": {
+    "key": "cryptojobslist",
+    "url": "https://cryptojobslist.com/ai",
+    "status": "detected",
+    "selectors": {
+      "card": "div.flex",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='loc']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://cryptojobslist.com/ai",
+    "card_count": 60,
+    "job_links_count": 25,
+    "sample_title": "",
+    "body_len": 7040
+  },
+  "berlinstartupjobs": {
+    "key": "berlinstartupjobs",
+    "url": "https://berlinstartupjobs.com/?s=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h3",
+      "company": "[class*='company']",
+      "location": "[class*='place']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://berlinstartupjobs.com/?s=AI+engineer",
+    "card_count": 2,
+    "job_links_count": 0,
+    "sample_title": "Categories",
+    "body_len": 2191
+  },
+  "remote4me": {
+    "key": "remote4me",
+    "url": "https://remote4me.com/?search=AI+engineer",
+    "status": "no_jobs_found",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://remote4me.com/?search=AI+engineer",
+    "body_len": 5518,
+    "job_links": 0
+  },
+  "builtin": {
+    "key": "builtin",
+    "url": "https://builtin.com/jobs/remote/dev-engineering?search=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h2 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "h2 a"
+    },
+    "http_status": 200,
+    "final_url": "https://builtin.com/jobs/remote/dev-engineering?search=AI+engineer",
+    "card_count": 57,
+    "job_links_count": 73,
+    "sample_title": "Full Stack developer - AI",
+    "body_len": 13260
+  },
+  "cryptojobs": {
+    "key": "cryptojobs",
+    "url": "https://crypto.jobs/?q=AI",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h3",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://crypto.jobs/?q=AI",
+    "card_count": 57,
+    "job_links_count": 20,
+    "sample_title": "\u2728 Latest Web3 jobs",
+    "body_len": 9443
+  },
+  "healthecareers": {
+    "key": "healthecareers",
+    "url": "https://www.healthecareers.com/jobs?keyword=AI+engineer",
+    "status": "no_jobs_found",
+    "selectors": null,
+    "http_status": 202,
+    "final_url": "https://www.healthecareers.com/jobs?keyword=AI+engineer",
+    "body_len": 164,
+    "job_links": 0
+  },
+  "academicjobs": {
+    "key": "academicjobs",
+    "url": "https://academicjobsonline.org/ajo/AI",
+    "status": "detected",
+    "selectors": {
+      "card": "li",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://academicjobsonline.org/ajo/AI",
+    "card_count": 11,
+    "job_links_count": 13,
+    "sample_title": "",
+    "body_len": 1611
+  },
+  "remoterocketship": {
+    "key": "remoterocketship",
+    "url": "https://www.remoterocketship.com/jobs/ai-engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "h3.text-lg",
+      "title": "h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "h3 a"
+    },
+    "http_status": 200,
+    "final_url": "https://www.remoterocketship.com/jobs/ai-engineer/",
+    "card_count": 26,
+    "job_links_count": 160,
+    "sample_title": "Senior AI Engineer, AI Platform",
+    "body_len": 16413
+  },
+  "remote3": {
+    "key": "remote3",
+    "url": "https://www.remote3.co/web3-jobs?category=Engineering",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h2",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://www.remote3.co/remote-web3-jobs?category=Engineering",
+    "card_count": 47,
+    "job_links_count": 40,
+    "sample_title": "Web3 Solidity Bootcamp - Job Guaranteed \ud83d\udcaf",
+    "body_len": 5442
+  },
+  "hnhiring": {
+    "key": "hnhiring",
+    "url": "https://hnhiring.com/locations/remote",
+    "status": "detected",
+    "selectors": {
+      "card": "p",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://hnhiring.com/locations/remote",
+    "card_count": 1188,
+    "job_links_count": 92,
+    "sample_title": "",
+    "body_len": 201612
+  },
+  "web3career": {
+    "key": "web3career",
+    "url": "https://web3.career/ai-jobs",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h2",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://web3.career/ai-jobs",
+    "card_count": 48,
+    "job_links_count": 0,
+    "sample_title": "Software Engineer I AI and ML",
+    "body_len": 7503
+  },
+  "dice": {
+    "key": "dice",
+    "url": "https://www.dice.com/jobs?q=AI+Engineer&location=Remote&countryCode=US&radius=30&radiusUnit=mi&page=1&pageSize=40&language=en",
+    "status": "error: Malformed attribute selector at position 6\n  line 1:\nul.mt-[16px]\n      ^",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://www.dice.com/jobs?q=AI+Engineer&location=Remote&countryCode=US&radius=30&radiusUnit=mi&page=1&pageSize=40&language=en"
+  },
+  "pallet": {
+    "key": "pallet",
+    "url": "https://pallet.xyz/explore?q=AI+engineer",
+    "status": "connection_error",
+    "selectors": null
+  },
+  "lensa": {
+    "key": "lensa",
+    "url": "https://lensa.com/ai-engineer-jobs/remote/jt/all",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://lensa.com/ai-engineer-jobs/remote/jt/all"
+  },
+  "mycareersfuture": {
+    "key": "mycareersfuture",
+    "url": "https://www.mycareersfuture.gov.sg/search?search=AI+engineer&sortBy=new_posting_date",
+    "status": "empty_body",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://www.mycareersfuture.gov.sg/search?search=AI+engineer&sortBy=new_posting_date"
+  },
+  "contra": {
+    "key": "contra",
+    "url": "https://contra.com/discover?q=AI+engineer",
+    "status": "spa_needs_browser",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://contra.com/discover?q=AI+engineer",
+    "body_len": 12830,
+    "job_links": 0
+  },
+  "relocateme": {
+    "key": "relocateme",
+    "url": "https://relocate.me/search?query=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='result']",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://relocate.me/international-jobs",
+    "card_count": 2,
+    "job_links_count": 0,
+    "sample_title": "",
+    "body_len": 6620
+  },
+  "remotifyeurope": {
+    "key": "remotifyeurope",
+    "url": "https://remotifyeurope.com/",
+    "status": "detected",
+    "selectors": {
+      "card": "div.relative",
+      "title": "h2",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://remotifyeurope.com/",
+    "card_count": 81,
+    "job_links_count": 24,
+    "sample_title": "Find Your DreamEU Remote JobToday",
+    "body_len": 7150
+  },
+  "nofluffjobs": {
+    "key": "nofluffjobs",
+    "url": "https://nofluffjobs.com/jobs/remote?criteria=keyword%3DAI",
+    "status": "detected",
+    "selectors": {
+      "card": "div.list-container",
+      "title": "h3",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://nofluffjobs.com/remote?criteria=keyword%3DAI",
+    "card_count": 2,
+    "job_links_count": 20,
+    "sample_title": "Python AI/ML EngineerNEW",
+    "body_len": 3040
+  },
+  "daijob": {
+    "key": "daijob",
+    "url": "https://www.daijob.com/en/search_job/result?kw=AI+engineer",
+    "status": "not_found",
+    "selectors": null,
+    "http_status": 404,
+    "final_url": "https://www.daijob.com/en/search_job/result?kw=AI+engineer"
+  },
+  "iimjobs": {
+    "key": "iimjobs",
+    "url": "https://www.iimjobs.com/j?q=AI+engineer",
+    "status": "not_found",
+    "selectors": null,
+    "http_status": 404,
+    "final_url": "https://www.iimjobs.com/j?q=AI+engineer"
+  },
+  "landingjobs": {
+    "key": "landingjobs",
+    "url": "https://landing.jobs/jobs?q=AI+engineer&remote=true",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h2 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "h2 a"
+    },
+    "http_status": 200,
+    "final_url": "https://landing.jobs/jobs?q=AI+engineer&remote=true",
+    "card_count": 41,
+    "job_links_count": 21,
+    "sample_title": "Senior Data Engineer | Deep Individual Data team",
+    "body_len": 1963
+  },
+  "dubizzle": {
+    "key": "dubizzle",
+    "url": "https://www.dubizzle.com/jobs/?keyword=AI+engineer",
+    "status": "no_jobs_found",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://www.dubizzle.com/jobs/?keyword=AI+engineer",
+    "body_len": 738,
+    "job_links": 0
+  },
+  "jobstreetsg": {
+    "key": "jobstreetsg",
+    "url": "https://www.jobstreet.com.sg/ai-engineer-jobs",
+    "status": "detected",
+    "selectors": {
+      "card": "ul._1wwcs5g0",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://sg.jobstreet.com/",
+    "card_count": 19,
+    "job_links_count": 21,
+    "sample_title": "",
+    "body_len": 4417
+  },
+  "internshala": {
+    "key": "internshala",
+    "url": "https://internshala.com/jobs/ai-ml-jobs/",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='card']",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://internshala.com/jobs/ai-ml-jobs/",
+    "card_count": 41,
+    "job_links_count": 161,
+    "sample_title": "",
+    "body_len": 98711
+  },
+  "qureos": {
+    "key": "qureos",
+    "url": "https://www.qureos.com/jobs?q=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='card']",
+      "title": "div[class*='title']",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://www.qureos.com/",
+    "card_count": 13,
+    "job_links_count": 74,
+    "sample_title": "How to Prepare for an AI Video Interview?",
+    "body_len": 10957
+  },
+  "ziprecruiter": {
+    "key": "ziprecruiter",
+    "url": "https://www.ziprecruiter.com/jobs-search?search=AI+Engineer&location=Remote",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://www.ziprecruiter.com/jobs-search?search=AI+Engineer&location=Remote"
+  },
+  "kdnuggets": {
+    "key": "kdnuggets",
+    "url": "https://www.kdnuggets.com/jobs/index.html",
+    "status": "detected",
+    "selectors": {
+      "card": "li.menu-item",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://www.kdnuggets.com/",
+    "card_count": 23,
+    "job_links_count": 1,
+    "sample_title": "",
+    "body_len": 4384
+  },
+  "remotiveeurope": {
+    "key": "remotiveeurope",
+    "url": "https://remotive.com/remote-jobs/software-dev?location=europe",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://remotive.com/remote-jobs/software-dev?location=europe"
+  },
+  "ikigai": {
+    "key": "ikigai",
+    "url": "https://www.ikigaiconnections.com/japan/",
+    "status": "detected",
+    "selectors": {
+      "card": "ul.wp-block-list",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://www.ikigaiconnections.com/japan/",
+    "card_count": 8,
+    "job_links_count": 1,
+    "sample_title": "",
+    "body_len": 18768
+  },
+  "workhap": {
+    "key": "workhap",
+    "url": "https://workhap.com/jobs?q=AI",
+    "status": "not_found",
+    "selectors": null,
+    "http_status": 404,
+    "final_url": "https://workhap.com/jobs?q=AI"
+  },
+  "welcomejungle": {
+    "key": "welcomejungle",
+    "url": "https://www.welcometothejungle.com/en/jobs?query=AI+engineer&refinementList%5Bremote%5D%5B%5D=fulltime",
+    "status": "no_jobs_found",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://www.welcometothejungle.com/en/jobs?query=AI+engineer&refinementList%5Bremote%5D%5B%5D=fulltime",
+    "body_len": 1432,
+    "job_links": 0
+  },
+  "techhiringsg": {
+    "key": "techhiringsg",
+    "url": "https://techhiring.open.gov.sg/",
+    "status": "connection_error",
+    "selectors": null
+  },
+  "naturecareers": {
+    "key": "naturecareers",
+    "url": "https://www.nature.com/naturecareers/jobs/search?keywords=artificial+intelligence&location=&countrycode=",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "h3 a"
+    },
+    "http_status": 200,
+    "final_url": "https://www.nature.com/naturecareers/jobs/?keywords=artificial+intelligence&location=&countrycode=",
+    "card_count": 86,
+    "job_links_count": 103,
+    "sample_title": "Associate Professor",
+    "body_len": 11627
+  },
+  "irishjobs": {
+    "key": "irishjobs",
+    "url": "https://www.irishjobs.ie/ShowResults.aspx?Keywords=AI+engineer",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://www.irishjobs.ie/ShowResults.aspx?Keywords=AI+engineer"
+  },
+  "ukcivilservice": {
+    "key": "ukcivilservice",
+    "url": "https://www.civilservicejobs.service.gov.uk/csr/index.cgi?SID=c2VhcmNocGFnZT0xJnBhZ2VhY3Rpb249c2VhcmNoYnlxdWlja3NlYXJjaCZvd25lcnR5cGU9ZmFpciZxdWlja19zZWFyY2hfdGV4dD1BSSBlbmdpbmVlcg==",
+    "status": "no_jobs_found",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://www.civilservicejobs.service.gov.uk/csr/index.cgi?SID=c2VhcmNocGFnZT0xJnBhZ2VhY3Rpb249c2VhcmNoYnlxdWlja3NlYXJjaCZvd25lcnR5cGU9ZmFpciZxdWlja19zZWFyY2hfdGV4dD1BSSBlbmdpbmVlcg==",
+    "body_len": 501,
+    "job_links": 0
+  },
+  "researchgate": {
+    "key": "researchgate",
+    "url": "https://www.researchgate.net/jobs?query=artificial+intelligence",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://www.researchgate.net/jobs?query=artificial+intelligence"
+  },
+  "jobgether": {
+    "key": "jobgether",
+    "url": "https://jobgether.com/search?q=AI+engineer&remote=true",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://jobgether.com/remote-jobs"
+  },
+  "workable": {
+    "key": "workable",
+    "url": "https://apply.workable.com/j/ai-engineer/",
+    "status": "empty_body",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://apply.workable.com/oops"
+  },
+  "aijoboard": {
+    "key": "aijoboard",
+    "url": "https://aijobboard.net/?q=AI+engineer",
+    "status": "connection_error",
+    "selectors": null
+  },
+  "simplyhired": {
+    "key": "simplyhired",
+    "url": "https://www.simplyhired.com/search?q=AI+engineer&l=remote",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://www.simplyhired.com/search?q=AI+engineer&l=remote"
+  },
+  "monster": {
+    "key": "monster",
+    "url": "https://www.monster.com/jobs/search?q=AI+Engineer&where=remote",
+    "status": "detected",
+    "selectors": {
+      "card": "li.indexmodern__VerticalNavigationItem-sc-1ik64sg-24",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://www.monster.com/jobs/search?q=AI+Engineer&where=remote",
+    "card_count": 20,
+    "job_links_count": 3,
+    "sample_title": "",
+    "body_len": 1329
+  },
+  "careersgovsg": {
+    "key": "careersgovsg",
+    "url": "https://careers.pageuppeople.com/688/cwlive/en/filter/?search-keyword=AI&category=technology",
+    "status": "not_found",
+    "selectors": null,
+    "http_status": 404,
+    "final_url": "https://careers.pageuppeople.com/688/cwlive/en/filter/?search-keyword=AI&category=technology"
+  },
+  "datajobs": {
+    "key": "datajobs",
+    "url": "https://datajobs.com/data-science-jobs?q=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h2 a, h3 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href*='job']"
+    },
+    "http_status": 200,
+    "final_url": "https://datajobs.com/Data-Science-Jobs",
+    "card_count": 9,
+    "job_links_count": 0,
+    "sample_title": "",
+    "body_len": 2091
+  },
+  "jooble": {
+    "key": "jooble",
+    "url": "https://jooble.org/SearchResult?date=3&rgns=Remote&ukw=AI+engineer",
+    "status": "blocked",
+    "selectors": null,
+    "http_status": 403,
+    "final_url": "https://jooble.org/SearchResult?date=3&rgns=Remote&ukw=AI+engineer"
+  },
+  "careerjet": {
+    "key": "careerjet",
+    "url": "https://www.careerjet.com/search/jobs?s=AI+engineer&l=remote",
+    "status": "no_jobs_found",
+    "selectors": null,
+    "http_status": 200,
+    "final_url": "https://www.careerjet.com/search/jobs?s=AI+engineer&l=remote",
+    "body_len": 202,
+    "job_links": 0
+  },
+  "governmentjobs": {
+    "key": "governmentjobs",
+    "url": "https://www.governmentjobs.com/careers?keyword=AI+engineer",
+    "status": "detected",
+    "selectors": {
+      "card": "tr",
+      "title": "h2",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://www.governmentjobs.com",
+    "card_count": 22,
+    "job_links_count": 0,
+    "sample_title": "Do not sell my personal information",
+    "body_len": 107831
+  },
+  "adzuna": {
+    "key": "adzuna",
+    "url": "https://www.adzuna.com/search?q=AI+engineer&loc=remote",
+    "status": "http_400",
+    "selectors": null,
+    "http_status": 400,
+    "final_url": "https://www.adzuna.com/search?q=AI+engineer&loc=remote"
+  },
+  "jobsdbsg": {
+    "key": "jobsdbsg",
+    "url": "https://sg.jobsdb.com/ai-engineer-jobs",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='result']",
+      "title": "h2 a",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "h2 a"
+    },
+    "http_status": 200,
+    "final_url": "https://sg.jora.com/Ai-Engineer-jobs",
+    "card_count": 30,
+    "job_links_count": 30,
+    "sample_title": "AI Engineer [LLM Applications | Digital Identity | AI Securi",
+    "body_len": 7258
+  },
+  "talent": {
+    "key": "talent",
+    "url": "https://www.talent.com/jobs?k=AI+engineer&l=remote",
+    "status": "detected",
+    "selectors": {
+      "card": "article",
+      "title": "h2",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://www.talent.com/jobs?k=AI+engineer&l=remote",
+    "card_count": 19,
+    "job_links_count": 0,
+    "sample_title": "AI Engineer",
+    "body_len": 7686
+  },
+  "iqvia": {
+    "key": "iqvia",
+    "url": "https://jobs.iqvia.com/en/search-jobs?k=AI+machine+learning",
+    "status": "detected",
+    "selectors": {
+      "card": "[class*='job']",
+      "title": "h2",
+      "company": "[class*='company']",
+      "location": "[class*='location']",
+      "link": "a[href]"
+    },
+    "http_status": 200,
+    "final_url": "https://jobs.iqvia.com/en/jobs?k=AI+machine+learning",
+    "card_count": 4,
+    "job_links_count": 0,
+    "sample_title": "Job Listing",
+    "body_len": 11527
+  },
+  "remoteco": {
+    "key": "remoteco",
+    "url": "https://remote.co/remote-jobs/developer/",
+    "status": "timeout",
+    "selectors": null
+  },
+  "naukrigulf": {
+    "key": "naukrigulf",
+    "url": "https://www.naukrigulf.com/ai-engineer-jobs",
+    "status": "timeout",
+    "selectors": null
+  }
+}

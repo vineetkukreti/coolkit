@@ -1,0 +1,14 @@
+requests
+beautifulsoup4
+lxml
+playwright
+rich
+fastapi
+uvicorn
+python-multipart
+openpyxl
+pandas
+python-dotenv
+google-genai
+crawl4ai
+Email 

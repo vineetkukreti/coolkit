@@ -1,0 +1,122 @@
+<svg class="rich-terminal" viewBox="0 0 933 416.0" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .terminal-261378762-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .terminal-261378762-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .terminal-261378762-r1 { fill: #c5c8c6 }
+.terminal-261378762-r2 { fill: #c5c8c6;font-weight: bold }
+.terminal-261378762-r3 { fill: #98a84b;font-weight: bold }
+.terminal-261378762-r4 { fill: #4e707b;font-weight: bold }
+.terminal-261378762-r5 { fill: #68a0b3;font-weight: bold }
+.terminal-261378762-r6 { fill: #d0b344;font-weight: bold }
+.terminal-261378762-r7 { fill: #68a0b3 }
+.terminal-261378762-r8 { fill: #868887 }
+.terminal-261378762-r9 { fill: #6b753d }
+    </style>
+
+    <defs>
+    <clipPath id="terminal-261378762-clip-terminal">
+      <rect x="0" y="0" width="914.0" height="365.0" />
+    </clipPath>
+    <clipPath id="terminal-261378762-line-0">
+    <rect x="0" y="1.5" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-1">
+    <rect x="0" y="25.9" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-2">
+    <rect x="0" y="50.3" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-3">
+    <rect x="0" y="74.7" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-4">
+    <rect x="0" y="99.1" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-5">
+    <rect x="0" y="123.5" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-6">
+    <rect x="0" y="147.9" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-7">
+    <rect x="0" y="172.3" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-8">
+    <rect x="0" y="196.7" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-9">
+    <rect x="0" y="221.1" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-10">
+    <rect x="0" y="245.5" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-11">
+    <rect x="0" y="269.9" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-12">
+    <rect x="0" y="294.3" width="915" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-261378762-line-13">
+    <rect x="0" y="318.7" width="915" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="931" height="414" rx="8"/><text class="terminal-261378762-title" fill="#c5c8c6" text-anchor="middle" x="465" y="27">LinkedIn&#160;Job&#160;Parser&#160;—&#160;Session&#160;Summary</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#terminal-261378762-clip-terminal)">
+    
+    <g class="terminal-261378762-matrix">
+    <text class="terminal-261378762-r1" x="915" y="20" textLength="12.2" clip-path="url(#terminal-261378762-line-0)">
+</text><text class="terminal-261378762-r2" x="24.4" y="44.4" textLength="158.6" clip-path="url(#terminal-261378762-line-1)">This&#160;session:</text><text class="terminal-261378762-r1" x="915" y="44.4" textLength="12.2" clip-path="url(#terminal-261378762-line-1)">
+</text><text class="terminal-261378762-r1" x="0" y="68.8" textLength="292.8" clip-path="url(#terminal-261378762-line-2)">&#160;&#160;&#160;&#160;New&#160;posts&#160;saved:&#160;&#160;&#160;&#160;</text><text class="terminal-261378762-r3" x="292.8" y="68.8" textLength="36.6" clip-path="url(#terminal-261378762-line-2)">171</text><text class="terminal-261378762-r1" x="915" y="68.8" textLength="12.2" clip-path="url(#terminal-261378762-line-2)">
+</text><text class="terminal-261378762-r1" x="0" y="93.2" textLength="292.8" clip-path="url(#terminal-261378762-line-3)">&#160;&#160;&#160;&#160;Duplicates&#160;skipped:&#160;</text><text class="terminal-261378762-r4" x="292.8" y="93.2" textLength="12.2" clip-path="url(#terminal-261378762-line-3)">7</text><text class="terminal-261378762-r1" x="915" y="93.2" textLength="12.2" clip-path="url(#terminal-261378762-line-3)">
+</text><text class="terminal-261378762-r2" x="24.4" y="117.6" textLength="195.2" clip-path="url(#terminal-261378762-line-4)">Database&#160;totals:</text><text class="terminal-261378762-r1" x="915" y="117.6" textLength="12.2" clip-path="url(#terminal-261378762-line-4)">
+</text><text class="terminal-261378762-r1" x="0" y="142" textLength="292.8" clip-path="url(#terminal-261378762-line-5)">&#160;&#160;&#160;&#160;Total&#160;posts:&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-261378762-r5" x="292.8" y="142" textLength="36.6" clip-path="url(#terminal-261378762-line-5)">171</text><text class="terminal-261378762-r1" x="915" y="142" textLength="12.2" clip-path="url(#terminal-261378762-line-5)">
+</text><text class="terminal-261378762-r1" x="0" y="166.4" textLength="292.8" clip-path="url(#terminal-261378762-line-6)">&#160;&#160;&#160;&#160;With&#160;email:&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-261378762-r6" x="292.8" y="166.4" textLength="24.4" clip-path="url(#terminal-261378762-line-6)">48</text><text class="terminal-261378762-r1" x="915" y="166.4" textLength="12.2" clip-path="url(#terminal-261378762-line-6)">
+</text><text class="terminal-261378762-r1" x="0" y="190.8" textLength="292.8" clip-path="url(#terminal-261378762-line-7)">&#160;&#160;&#160;&#160;Confirmed&#160;hiring:&#160;&#160;&#160;</text><text class="terminal-261378762-r3" x="292.8" y="190.8" textLength="24.4" clip-path="url(#terminal-261378762-line-7)">98</text><text class="terminal-261378762-r1" x="915" y="190.8" textLength="12.2" clip-path="url(#terminal-261378762-line-7)">
+</text><text class="terminal-261378762-r1" x="0" y="215.2" textLength="292.8" clip-path="url(#terminal-261378762-line-8)">&#160;&#160;&#160;&#160;Domain&#160;High:&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-261378762-r5" x="292.8" y="215.2" textLength="24.4" clip-path="url(#terminal-261378762-line-8)">42</text><text class="terminal-261378762-r1" x="915" y="215.2" textLength="12.2" clip-path="url(#terminal-261378762-line-8)">
+</text><text class="terminal-261378762-r2" x="24.4" y="239.6" textLength="97.6" clip-path="url(#terminal-261378762-line-9)">DB&#160;file:</text><text class="terminal-261378762-r7" x="256.2" y="239.6" textLength="195.2" clip-path="url(#terminal-261378762-line-9)">linkedin_jobs.db</text><text class="terminal-261378762-r1" x="915" y="239.6" textLength="12.2" clip-path="url(#terminal-261378762-line-9)">
+</text><text class="terminal-261378762-r1" x="915" y="264" textLength="12.2" clip-path="url(#terminal-261378762-line-10)">
+</text><text class="terminal-261378762-r8" x="24.4" y="288.4" textLength="695.4" clip-path="url(#terminal-261378762-line-11)">Export&#160;to&#160;Excel&#160;anytime:&#160;&#160;python&#160;db.py&#160;--export&#160;jobs.xlsx</text><text class="terminal-261378762-r1" x="915" y="288.4" textLength="12.2" clip-path="url(#terminal-261378762-line-11)">
+</text><text class="terminal-261378762-r8" x="24.4" y="312.8" textLength="561.2" clip-path="url(#terminal-261378762-line-12)">Query&#160;by&#160;role:&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;python&#160;db.py&#160;--role&#160;</text><text class="terminal-261378762-r9" x="585.6" y="312.8" textLength="158.6" clip-path="url(#terminal-261378762-line-12)">&quot;AI&#160;Engineer&quot;</text><text class="terminal-261378762-r8" x="744.2" y="312.8" textLength="146.4" clip-path="url(#terminal-261378762-line-12)">&#160;--has-email</text><text class="terminal-261378762-r1" x="915" y="312.8" textLength="12.2" clip-path="url(#terminal-261378762-line-12)">
+</text><text class="terminal-261378762-r8" x="24.4" y="337.2" textLength="561.2" clip-path="url(#terminal-261378762-line-13)">See&#160;all&#160;stats:&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;python&#160;db.py&#160;--stats</text><text class="terminal-261378762-r1" x="915" y="337.2" textLength="12.2" clip-path="url(#terminal-261378762-line-13)">
+</text><text class="terminal-261378762-r1" x="915" y="361.6" textLength="12.2" clip-path="url(#terminal-261378762-line-14)">
+</text>
+    </g>
+    </g>
+</svg>

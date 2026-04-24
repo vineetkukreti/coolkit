@@ -1,0 +1,411 @@
+{
+  "timestamp": "2026-04-24T14:34:17.445488",
+  "total": 100,
+  "pass": 29,
+  "empty": 26,
+  "blocked": 13,
+  "fail": 12,
+  "skip": 20,
+  "details": {
+    "career_links": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "enricher": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "jobspy": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "deepfetch": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "indeed": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "wwr_rss": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "wellfound": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "google": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "linkedin": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "hashtags": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "naukri": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "yc": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "hn": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "feed": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "arcdev": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "euremotejobs": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "bayt": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "remoteai": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "japandev": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "weworkremotely": {
+      "status": "skip",
+      "message": "Custom scraper \u2014 needs browser or special handling"
+    },
+    "ashby": {
+      "status": "fail",
+      "message": "HTTP 404"
+    },
+    "remotive": {
+      "status": "pass",
+      "message": "22 jobs found. Sample keys: ['id', 'url', 'title', 'company_name', 'company_logo']"
+    },
+    "greenhouse": {
+      "status": "pass",
+      "message": "447 jobs found. Sample keys: ['absolute_url', 'data_compliance', 'internal_job_id', 'location', 'metadata']"
+    },
+    "himalayas": {
+      "status": "pass",
+      "message": "5 jobs found. Sample keys: ['title', 'excerpt', 'companyName', 'companySlug', 'companyLogo']"
+    },
+    "mljobs": {
+      "status": "fail",
+      "message": "Connection error: HTTPSConnectionPool(host='mljobsboard.com', port=443): Max retries exceeded with"
+    },
+    "nodesk": {
+      "status": "pass",
+      "message": "62 cards, 2/5 titles, 2/5 links. Sample: \"Search remote jobs\""
+    },
+    "remoteineurope": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "f6s": {
+      "status": "empty",
+      "message": "Card selector '[class*='job'], article' matched 0. Body text: 551 chars."
+    },
+    "aijobs": {
+      "status": "empty",
+      "message": "50 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "startupjobs": {
+      "status": "fail",
+      "message": "HTTP 404"
+    },
+    "lever": {
+      "status": "fail",
+      "message": "HTTP 404"
+    },
+    "aimljobs": {
+      "status": "pass",
+      "message": "22 cards, 4/5 titles, 1/5 links. Sample: \"Frontend Developer (AI Interface)\""
+    },
+    "tokyodev": {
+      "status": "pass",
+      "message": "276 cards, 3/5 titles, 4/5 links. Sample: \"Engineering Manager\""
+    },
+    "gulftalent": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "workinstartups": {
+      "status": "pass",
+      "message": "10 cards, 5/5 titles, 5/5 links. Sample: \"Driving For Cash? Sign Up To Drive With Uber And Earn Flexib\""
+    },
+    "eudatajobs": {
+      "status": "pass",
+      "message": "2 cards, 2/5 titles, 0/5 links. Sample: \"AI-Native Cloud Infrastructure Generalist (m/f/d)\""
+    },
+    "swissdevjobs": {
+      "status": "blocked",
+      "message": "Nearly empty page (12 chars)"
+    },
+    "hirist": {
+      "status": "fail",
+      "message": "HTTP 404"
+    },
+    "foundit": {
+      "status": "empty",
+      "message": "7 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "berlinstartupjobs": {
+      "status": "pass",
+      "message": "2 cards, 1/5 titles, 2/5 links. Sample: \"Categories\""
+    },
+    "eurotechjobs": {
+      "status": "empty",
+      "message": "Card selector 'article, .job-listing, tr[class*='job']' matched 0. Body text: 110 chars."
+    },
+    "cryptojobslist": {
+      "status": "empty",
+      "message": "60 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "remoteok": {
+      "status": "pass",
+      "message": "101 jobs found. Sample keys: ['last_updated', 'legal']"
+    },
+    "workingnomads": {
+      "status": "pass",
+      "message": "31 jobs found. Sample keys: ['url', 'title', 'description', 'company_name', 'category_name']"
+    },
+    "builtin": {
+      "status": "pass",
+      "message": "57 cards, 1/5 titles, 1/5 links. Sample: \"Full Stack developer - AI\""
+    },
+    "timesjobs": {
+      "status": "pass",
+      "message": "463 cards, 4/5 titles, 4/5 links. Sample: \"Data QA Analyst\""
+    },
+    "cryptojobs": {
+      "status": "pass",
+      "message": "57 cards, 1/5 titles, 2/5 links. Sample: \"\u2728 Latest Web3 jobs\""
+    },
+    "remote4me": {
+      "status": "pass",
+      "message": "3 cards, 1/5 titles, 1/5 links. Sample: \"Remote developer jobsFor each technology stack\""
+    },
+    "healthecareers": {
+      "status": "fail",
+      "message": "HTTP 202"
+    },
+    "gaijinpot": {
+      "status": "empty",
+      "message": "94 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "academicjobs": {
+      "status": "empty",
+      "message": "11 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "web3career": {
+      "status": "pass",
+      "message": "48 cards, 2/5 titles, 4/5 links. Sample: \"Software Engineer I AI and ML\""
+    },
+    "remoterocketship": {
+      "status": "pass",
+      "message": "26 cards, 5/5 titles, 5/5 links. Sample: \"Senior AI Engineer, AI Platform\""
+    },
+    "remote3": {
+      "status": "pass",
+      "message": "47 cards, 2/5 titles, 1/5 links. Sample: \"Web3 Solidity Bootcamp - Job Guaranteed \ud83d\udcaf\""
+    },
+    "hnhiring": {
+      "status": "empty",
+      "message": "1188 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "relocateme": {
+      "status": "empty",
+      "message": "2 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "lensa": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "contra": {
+      "status": "empty",
+      "message": "SPA detected (React/Vue) \u2014 needs browser rendering. Card selector 'article, [class*='card']' matched 0."
+    },
+    "daijob": {
+      "status": "empty",
+      "message": "Card selector '.job-card, article, tr[class*='job']' matched 0, but found 131 job-like links. Selectors need tuning."
+    },
+    "nofluffjobs": {
+      "status": "pass",
+      "message": "2 cards, 2/5 titles, 2/5 links. Sample: \"Python AI/ML EngineerNEW\""
+    },
+    "mycareersfuture": {
+      "status": "blocked",
+      "message": "Nearly empty page (25 chars)"
+    },
+    "remotifyeurope": {
+      "status": "pass",
+      "message": "81 cards, 4/5 titles, 2/5 links. Sample: \"Find Your DreamEU Remote JobToday\""
+    },
+    "dubizzle": {
+      "status": "empty",
+      "message": "Card selector '[class*='listing'], article' matched 0. Body text: 738 chars."
+    },
+    "iimjobs": {
+      "status": "empty",
+      "message": "Card selector '.job-card, article, div[class*='job-list']' matched 0, but found 191 job-like links. Selectors need tuning."
+    },
+    "landingjobs": {
+      "status": "pass",
+      "message": "41 cards, 1/5 titles, 1/5 links. Sample: \"Senior Data Engineer | Deep Individual Data team\""
+    },
+    "internshala": {
+      "status": "empty",
+      "message": "41 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "jobstreetsg": {
+      "status": "empty",
+      "message": "15 cards found but title selector 'h3 a, a[data-automation='jobTitle']' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "qureos": {
+      "status": "pass",
+      "message": "13 cards, 2/5 titles, 0/5 links. Sample: \"How to Prepare for an AI Video Interview?\""
+    },
+    "naturecareers": {
+      "status": "pass",
+      "message": "86 cards, 1/5 titles, 1/5 links. Sample: \"Associate Professor\""
+    },
+    "kdnuggets": {
+      "status": "pass",
+      "message": "53 cards, 5/5 titles, 5/5 links. Sample: \"Blog\""
+    },
+    "pallet": {
+      "status": "empty",
+      "message": "Card selector 'article, [class*='job']' matched 0. Body text: 211 chars."
+    },
+    "ziprecruiter": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "remotiveeurope": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "ikigai": {
+      "status": "pass",
+      "message": "8 cards, 4/5 titles, 4/5 links. Sample: \"Japanese Visa Website-\""
+    },
+    "workhap": {
+      "status": "empty",
+      "message": "13 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "welcomejungle": {
+      "status": "empty",
+      "message": "Card selector '[class*='card'], article' matched 0, but found 10 job-like links. Selectors need tuning."
+    },
+    "techhiringsg": {
+      "status": "empty",
+      "message": "1 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "ukcivilservice": {
+      "status": "empty",
+      "message": "Card selector '[class*='result'], article' matched 0. Body text: 501 chars."
+    },
+    "monster": {
+      "status": "empty",
+      "message": "Card selector '[class*='card']' matched 0, but found 9 job-like links. Selectors need tuning."
+    },
+    "irishjobs": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "workable": {
+      "status": "blocked",
+      "message": "Nearly empty page (70 chars)"
+    },
+    "jobgether": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "jobsdbsg": {
+      "status": "pass",
+      "message": "30 cards, 4/5 titles, 4/5 links. Sample: \"AI Engineer [LLM Applications | Digital Identity | AI Securi\""
+    },
+    "researchgate": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "careersgovsg": {
+      "status": "fail",
+      "message": "HTTP 404"
+    },
+    "governmentjobs": {
+      "status": "pass",
+      "message": "22 cards, 1/5 titles, 0/5 links. Sample: \"Do not sell my personal information\""
+    },
+    "datajobs": {
+      "status": "empty",
+      "message": "9 cards found but title selector 'h2 a, h3 a' matched 0. Page has content \u2014 selectors need tuning."
+    },
+    "jooble": {
+      "status": "blocked",
+      "message": "HTTP 403"
+    },
+    "careerjet": {
+      "status": "empty",
+      "message": "Card selector '[class*='job'], article' matched 0. Body text: 202 chars."
+    },
+    "smartrecruiters": {
+      "status": "fail",
+      "message": "Error: Invalid URL '': No scheme supplied. Perhaps you meant https://?"
+    },
+    "adzuna": {
+      "status": "empty",
+      "message": "SPA detected (React/Vue) \u2014 needs browser rendering. Card selector '[class*='result'], article' matched 0."
+    },
+    "talent": {
+      "status": "pass",
+      "message": "19 cards, 5/5 titles, 5/5 links. Sample: \"AI Engineer\""
+    },
+    "euraxess": {
+      "status": "fail",
+      "message": "HTTP 404"
+    },
+    "usajobs": {
+      "status": "fail",
+      "message": "HTTP 401"
+    },
+    "dice": {
+      "status": "empty",
+      "message": "SPA detected (React/Vue) \u2014 needs browser rendering. Card selector '[data-cy='search-card'], [class*='card']' matched 0."
+    },
+    "iqvia": {
+      "status": "pass",
+      "message": "4 cards, 1/5 titles, 0/5 links. Sample: \"Job Listing\""
+    },
+    "simplyhired": {
+      "status": "empty",
+      "message": "SPA detected (React/Vue) \u2014 needs browser rendering. Card selector 'article, [class*='job']' matched 0."
+    },
+    "aijoboard": {
+      "status": "blocked",
+      "message": "Nearly empty page (0 chars)"
+    },
+    "remoteco": {
+      "status": "fail",
+      "message": "Timeout (12s)"
+    },
+    "naukrigulf": {
+      "status": "fail",
+      "message": "Timeout (12s)"
+    }
+  }
+}

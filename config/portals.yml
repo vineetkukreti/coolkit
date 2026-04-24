@@ -1,0 +1,343 @@
+# Portal Scanner Configuration — Healthcare AI Companies
+# Focused on healthcare, biotech, pharma, and life sciences companies
+# leveraging AI/ML for drug discovery, clinical diagnostics, and patient care.
+#
+# Strategy (3 levels):
+#   1. Playwright -> careers_url of each company (real-time, reliable)
+#   2. Greenhouse API -> structured JSON (fast, Greenhouse-only)
+#   3. WebSearch with site: filters (broad discovery, may be stale)
+#
+# IMPORTANT: Each company in tracked_companies MUST have careers_url.
+
+# -- Title filter --
+# The scanner uses these keywords to decide if a title is relevant.
+# At least 1 positive must match AND 0 negatives must match (case-insensitive).
+
+title_filter:
+  positive:
+    # -- Healthcare AI specific --
+    - "clinical AI"
+    - "healthcare AI"
+    - "medical AI"
+    # -- Core ML/AI roles --
+    - "ML engineer"
+    - "AI engineer"
+    - "GenAI"
+    - "LLM"
+    - "NLP"
+    - "computer vision"
+    - "data scientist"
+    - "MLOps"
+    - "agentic AI"
+    - "deep learning"
+    # -- Broader AI/ML keywords --
+    - "machine learning"
+    - "AI"
+    - "ML"
+    - "applied scientist"
+    - "research scientist"
+    - "bioinformatics"
+    - "computational biology"
+  negative:
+    # -- Too senior for 2yr experience --
+    - "Senior"
+    - "Staff"
+    - "Principal"
+    - "Lead"
+    - "Head of"
+    - "Director"
+    - "VP"
+    - "Chief"
+    - "Architect"    # usually 5+ yr roles
+    - "Manager"      # people-management roles
+    # -- Irrelevant stacks --
+    - "Intern"
+    - ".NET"
+    - "Java "
+    - "iOS"
+    - "Android"
+    - "PHP"
+    - "Ruby"
+    - "Embedded"
+    - "Blockchain"
+    - "Web3"
+    - "Salesforce Admin"
+    - "SAP"
+    - "COBOL"
+    - "Nursing"
+    - "RN"
+    - "Medical Assistant"
+  seniority_boost:
+    # Roles that match 0-3yr experience level
+    - "Junior"
+    - "Associate"
+    - "Entry"
+
+# -- Search queries --
+# Each query triggers a WebSearch. Use site: to filter by portal.
+
+search_queries:
+
+  # -- Greenhouse healthcare AI --
+  - name: Greenhouse — Healthcare AI Engineer
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "AI Engineer" OR "ML Engineer" OR "Machine Learning" healthcare OR clinical OR medical'
+    enabled: true
+
+  - name: Greenhouse — Clinical Data Scientist
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "Data Scientist" OR "Applied Scientist" healthcare OR biotech OR pharma OR clinical'
+    enabled: true
+
+  - name: Greenhouse — NLP Healthcare
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "NLP" OR "Natural Language Processing" OR "LLM" medical OR clinical OR health'
+    enabled: true
+
+  - name: Greenhouse — Computer Vision Medical
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "Computer Vision" OR "Deep Learning" medical OR pathology OR radiology OR imaging'
+    enabled: true
+
+  - name: Greenhouse — MLOps Healthcare
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "MLOps" OR "ML Infrastructure" OR "ML Platform" healthcare OR biotech OR pharma'
+    enabled: true
+
+  - name: Greenhouse — Drug Discovery AI
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "drug discovery" OR "computational biology" OR "bioinformatics" AI OR ML OR "machine learning"'
+    enabled: true
+
+  # -- Ashby healthcare AI --
+  - name: Ashby — Healthcare AI Engineer
+    query: 'site:jobs.ashbyhq.com "AI Engineer" OR "ML Engineer" OR "Machine Learning" healthcare OR clinical OR medical'
+    enabled: true
+
+  - name: Ashby — GenAI Healthcare
+    query: 'site:jobs.ashbyhq.com "GenAI" OR "LLM" OR "Generative AI" health OR medical OR clinical'
+    enabled: true
+
+  - name: Ashby — Agentic AI Healthcare
+    query: 'site:jobs.ashbyhq.com "Agentic" OR "AI Agent" healthcare OR clinical OR medical'
+    enabled: true
+
+  # -- Lever healthcare AI --
+  - name: Lever — Healthcare AI Roles
+    query: 'site:jobs.lever.co "AI Engineer" OR "ML Engineer" OR "Data Scientist" healthcare OR biotech OR pharma OR clinical'
+    enabled: true
+
+  - name: Lever — Deep Learning Life Sciences
+    query: 'site:jobs.lever.co "Deep Learning" OR "Computer Vision" OR "NLP" drug OR genomics OR biotech OR medical'
+    enabled: true
+
+  # -- Cross-portal broad searches --
+  - name: All Portals — Healthcare GenAI
+    query: '"GenAI" OR "Generative AI" OR "LLM Engineer" healthcare OR clinical OR "life sciences" remote'
+    enabled: true
+
+  - name: All Portals — Computational Biology AI
+    query: '"computational biology" OR "computational chemistry" "AI" OR "ML" OR "deep learning" remote'
+    enabled: true
+
+# -- Tracked companies --
+# Companies whose career pages are checked directly.
+# scan_method: playwright (default), websearch, greenhouse_api
+# For Greenhouse companies, add api: field for faster structured JSON access.
+
+tracked_companies:
+
+  # -- Clinical AI & Precision Medicine --
+
+  - name: Tempus AI
+    careers_url: https://www.tempus.com/about-us/careers/
+    scan_method: websearch
+    scan_query: '"Tempus AI" careers OR jobs "AI" OR "ML" OR "engineer" OR "scientist"'
+    notes: "Precision medicine platform using AI to analyze clinical and molecular data for cancer treatment. Migrated to Workday ATS (tempus.wd5.myworkdayjobs.com)."
+    enabled: true
+
+  - name: Flatiron Health
+    careers_url: https://job-boards.greenhouse.io/flatironhealth
+    api: https://boards-api.greenhouse.io/v1/boards/flatironhealth/jobs
+    notes: "Oncology-focused health tech. Real-world evidence and clinical data analytics for cancer research."
+    enabled: true
+
+  - name: Viz.ai
+    careers_url: https://jobs.ashbyhq.com/Viz.ai
+    api: https://api.ashbyhq.com/posting-api/job-board/Viz.ai?includeCompensation=true
+    notes: "AI-powered care coordination. Computer vision for stroke and pulmonary embolism detection. Migrated from Greenhouse to Ashby."
+    enabled: true
+
+  - name: Rad AI
+    careers_url: https://jobs.ashbyhq.com/radai
+    api: https://api.ashbyhq.com/posting-api/job-board/radai?includeCompensation=true
+    notes: "AI for radiology reporting automation and clinical decision support. Migrated from Greenhouse to Ashby."
+    enabled: true
+
+  - name: Paige AI
+    careers_url: https://www.paige.ai
+    scan_method: websearch
+    scan_query: '"Paige AI" OR "Paige pathology" careers OR jobs "AI" OR "ML" OR "engineer" OR "scientist"'
+    notes: "AI-powered computational pathology for cancer diagnosis. No active public API job board found; previous Greenhouse board defunct."
+    enabled: false
+
+  - name: Color Health
+    careers_url: https://jobs.lever.co/color
+    api: https://api.lever.co/v0/postings/color
+    notes: "Population health platform. AI-driven genetic testing and cancer screening programs. Migrated from Greenhouse to Lever."
+    enabled: true
+
+  # -- Digital Health & Mental Health --
+
+  - name: Spring Health
+    careers_url: https://job-boards.greenhouse.io/springhealth66
+    api: https://boards-api.greenhouse.io/v1/boards/springhealth66/jobs
+    notes: "AI-powered mental health benefits platform. Precision medicine for behavioral health."
+    enabled: true
+
+  - name: Oscar Health
+    careers_url: https://www.hioscar.com/careers
+    api: https://boards-api.greenhouse.io/v1/boards/oscar/jobs
+    notes: "Technology-first health insurance. ML for claims, pricing, and member experience. Greenhouse slug is 'oscar' not 'oscarhealth'."
+    enabled: true
+
+  - name: Hinge Health
+    careers_url: https://jobs.ashbyhq.com/hinge-health
+    api: https://api.ashbyhq.com/posting-api/job-board/hinge-health?includeCompensation=true
+    notes: "Digital MSK clinic. Computer vision and AI for physical therapy and pain management. Migrated from Greenhouse to Ashby."
+    enabled: true
+
+  - name: Butterfly Network
+    careers_url: https://job-boards.greenhouse.io/butterflynetwork
+    api: https://boards-api.greenhouse.io/v1/boards/butterflynetwork/jobs
+    notes: "Handheld ultrasound with AI-powered image analysis and clinical guidance."
+    enabled: true
+
+  - name: Komodo Health
+    careers_url: https://job-boards.greenhouse.io/komodohealth
+    api: https://boards-api.greenhouse.io/v1/boards/komodohealth/jobs
+    notes: "Healthcare data analytics. AI/ML on patient-level data for life sciences and payers."
+    enabled: true
+
+  - name: Veracyte
+    careers_url: https://job-boards.greenhouse.io/veracyte
+    api: https://boards-api.greenhouse.io/v1/boards/veracyte/jobs
+    notes: "Genomic diagnostics company. ML-driven molecular tests for cancer diagnosis."
+    enabled: true
+
+  # -- AI-Powered Clinical Tools --
+
+  - name: Regard
+    careers_url: https://jobs.ashbyhq.com/regard
+    notes: "AI-powered clinical decision support for hospital physicians. Automated diagnosis suggestions."
+    enabled: true
+
+  - name: Hippocratic AI
+    careers_url: https://jobs.ashbyhq.com/Hippocratic%20AI
+    api: https://api.ashbyhq.com/posting-api/job-board/Hippocratic AI?includeCompensation=true
+    notes: "Safety-focused LLM for healthcare. Generative AI agents for non-diagnostic patient-facing tasks. Ashby slug is 'Hippocratic AI' (with space)."
+    enabled: true
+
+  - name: Owkin
+    careers_url: https://job-boards.greenhouse.io/owkin
+    api: https://boards-api.greenhouse.io/v1/boards/owkin/jobs
+    notes: "Federated learning for drug discovery and diagnostics. AI pathology and biomarker discovery."
+    enabled: true
+
+  # -- Pathology & Medical Imaging --
+
+  - name: PathAI
+    careers_url: https://job-boards.greenhouse.io/pathai
+    api: https://boards-api.greenhouse.io/v1/boards/pathai/jobs
+    notes: "AI-powered pathology. Deep learning for tissue analysis and biomarker quantification."
+    enabled: true
+
+  - name: Subtle Medical
+    careers_url: https://www.subtlemedical.com/careers
+    scan_method: websearch
+    scan_query: '"Subtle Medical" careers OR jobs "AI" OR "ML" OR "engineer"'
+    notes: "AI for medical imaging enhancement. Deep learning to improve MRI and PET scan quality."
+    enabled: true
+
+  # -- Drug Discovery & Computational Biology --
+
+  - name: Recursion Pharmaceuticals
+    careers_url: https://job-boards.greenhouse.io/recursionpharmaceuticals
+    api: https://boards-api.greenhouse.io/v1/boards/recursionpharmaceuticals/jobs
+    notes: "AI-driven drug discovery. Large-scale biological datasets with ML for target identification."
+    enabled: true
+
+  - name: Insitro
+    careers_url: https://jobs.ashbyhq.com/insitro
+    api: https://api.ashbyhq.com/posting-api/job-board/insitro?includeCompensation=true
+    notes: "ML-driven drug discovery. Uses human biology data and ML to design better medicines. Migrated from Greenhouse to Ashby."
+    enabled: true
+
+  - name: Relay Therapeutics
+    careers_url: https://job-boards.greenhouse.io/relaytherapeutics
+    api: https://boards-api.greenhouse.io/v1/boards/relaytherapeutics/jobs
+    notes: "AI and computational chemistry for protein motion-based drug design."
+    enabled: true
+
+  - name: Schrodinger
+    careers_url: https://job-boards.greenhouse.io/schrdinger
+    api: https://boards-api.greenhouse.io/v1/boards/schrdinger/jobs
+    notes: "Physics-based computational platform for drug discovery. ML-enhanced molecular simulations. Greenhouse slug is 'schrdinger' (no 'o')."
+    enabled: true
+
+  - name: Absci
+    careers_url: https://job-boards.greenhouse.io/absci
+    api: https://boards-api.greenhouse.io/v1/boards/absci/jobs
+    notes: "Generative AI for antibody drug design. De novo protein engineering with deep learning."
+    enabled: true
+
+  - name: Generate Biomedicines
+    careers_url: https://job-boards.greenhouse.io/generatebiomedicines
+    api: https://boards-api.greenhouse.io/v1/boards/generatebiomedicines/jobs
+    notes: "Generative biology platform. ML for protein therapeutics design."
+    enabled: true
+
+  - name: Deep Genomics
+    careers_url: https://jobs.lever.co/deepgenomics
+    api: https://api.lever.co/v0/postings/deepgenomics
+    notes: "AI-powered genetic medicine. Deep learning for RNA therapeutics and splicing prediction. Migrated from Greenhouse to Lever."
+    enabled: true
+
+  - name: Exscientia
+    careers_url: https://apply.workable.com/exscientia/
+    scan_method: websearch
+    scan_query: '"Exscientia" OR "Recursion" careers OR jobs "AI" OR "ML" OR "computational" OR "drug discovery"'
+    notes: "AI-driven drug design and patient selection. Merged with Recursion Pharmaceuticals. Migrated to Workable ATS; no public API."
+    enabled: false
+
+  - name: BenevolentAI
+    careers_url: https://apply.workable.com/benevolentai/
+    scan_method: websearch
+    scan_query: '"BenevolentAI" careers OR jobs "AI" OR "ML" OR "engineer" OR "scientist"'
+    notes: "AI for drug discovery. Knowledge graph and NLP for target identification in complex diseases. Migrated to Workable ATS; no public API."
+    enabled: false
+
+  - name: XtalPi
+    careers_url: https://en.xtalpi.com/careers/
+    scan_method: websearch
+    scan_query: '"XtalPi" careers OR jobs "AI" OR "ML" OR "computational" OR "scientist"'
+    notes: "AI and cloud-based computational platform for pharmaceutical R&D and crystal structure prediction. Uses MokaHR (Chinese ATS); no public API."
+    enabled: false
+
+  - name: Insilico Medicine
+    careers_url: https://insilico.com/careers
+    scan_method: websearch
+    scan_query: '"Insilico Medicine" careers OR jobs "AI" OR "ML" OR "engineer" OR "scientist"'
+    notes: "End-to-end AI for drug discovery. Generative chemistry and biology for novel target-drug pairs."
+    enabled: true
+
+  # -- AI Hardware & Infrastructure --
+
+  - name: Cerebras Systems
+    careers_url: https://job-boards.greenhouse.io/cerebrassystems
+    api: https://boards-api.greenhouse.io/v1/boards/cerebrassystems/jobs
+    notes: "Wafer-scale AI chips. Hardware infrastructure enabling large-scale healthcare AI workloads. Greenhouse slug is 'cerebrassystems'."
+    enabled: true
+
+  # -- Health Systems & Population Health --
+
+  - name: Nuvance Health
+    careers_url: https://www.nuvancehealth.org/careers
+    scan_method: websearch
+    scan_query: '"Nuvance Health" careers "AI" OR "data scientist" OR "machine learning" OR "analytics"'
+    notes: "Regional health system exploring AI for clinical operations and patient outcomes."
+    enabled: true
