@@ -165,6 +165,19 @@ CREATE TABLE IF NOT EXISTS daily_quotas (
     skipped         INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS worker_runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_type TEXT NOT NULL,
+    started_at  TEXT DEFAULT (datetime('now')),
+    finished_at TEXT,
+    status      TEXT DEFAULT 'running',
+    total       INTEGER DEFAULT 0,
+    succeeded   INTEGER DEFAULT 0,
+    failed      INTEGER DEFAULT 0,
+    error       TEXT,
+    results     TEXT
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_url ON posts(post_url) WHERE post_url IS NOT NULL AND post_url != '';
 CREATE INDEX IF NOT EXISTS idx_posts_content_hash ON posts(content_hash);
 CREATE INDEX IF NOT EXISTS idx_posts_domain ON posts(domain_relevance);
@@ -172,9 +185,60 @@ CREATE INDEX IF NOT EXISTS idx_posts_is_hiring ON posts(is_hiring);
 CREATE INDEX IF NOT EXISTS idx_jobs_role ON jobs(role);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company);
 CREATE INDEX IF NOT EXISTS idx_outreach_status ON email_outreach(status);
+CREATE INDEX IF NOT EXISTS idx_outreach_post_id ON email_outreach(post_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_created ON email_outreach(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_outreach_recipient ON email_outreach(recipient_email);
+CREATE INDEX IF NOT EXISTS idx_outreach_reply ON email_outreach(reply_detected_at);
+CREATE INDEX IF NOT EXISTS idx_pipeline_outreach ON pipeline_leads(outreach_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_url ON applications(job_url);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 CREATE INDEX IF NOT EXISTS idx_applications_date ON applications(applied_at);
+
+-- ─── Skills Intelligence ────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS skill_mentions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id          INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    skill_name      TEXT NOT NULL,
+    category        TEXT NOT NULL,
+    required_level  TEXT DEFAULT 'mentioned',
+    source          TEXT DEFAULT 'regex',
+    created_at      TEXT DEFAULT (datetime('now')),
+    UNIQUE(job_id, skill_name)
+);
+
+CREATE TABLE IF NOT EXISTS skill_demand_summary (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_name      TEXT NOT NULL UNIQUE,
+    category        TEXT NOT NULL,
+    mention_count   INTEGER DEFAULT 0,
+    percentage      REAL DEFAULT 0.0,
+    required_count  INTEGER DEFAULT 0,
+    preferred_count INTEGER DEFAULT 0,
+    last_updated    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS education_demands (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id          INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    degree_level    TEXT NOT NULL,
+    requirement     TEXT DEFAULT 'preferred',
+    field           TEXT
+);
+
+CREATE TABLE IF NOT EXISTS skills_analysis_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    status          TEXT DEFAULT 'running',
+    total_jobs      INTEGER DEFAULT 0,
+    processed       INTEGER DEFAULT 0,
+    started_at      TEXT DEFAULT (datetime('now')),
+    finished_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_mentions_skill ON skill_mentions(skill_name);
+CREATE INDEX IF NOT EXISTS idx_skill_mentions_job ON skill_mentions(job_id);
+CREATE INDEX IF NOT EXISTS idx_skill_mentions_category ON skill_mentions(category);
+CREATE INDEX IF NOT EXISTS idx_education_demands_job ON education_demands(job_id);
 """
 
 
@@ -235,6 +299,12 @@ def run_migrations(conn):
         "ALTER TABLE email_outreach ADD COLUMN followup_count INTEGER DEFAULT 0",
         "ALTER TABLE email_outreach ADD COLUMN last_followup_at TEXT",
         "ALTER TABLE posts ADD COLUMN smart_score REAL",
+        "ALTER TABLE email_outreach ADD COLUMN outreach_type TEXT DEFAULT 'cold'",
+        "ALTER TABLE email_outreach ADD COLUMN reply_detected_at TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN reply_preview TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN error_message TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN error_type TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN reply_type TEXT",
     ]
     for sql in migrations:
         try:
@@ -399,7 +469,10 @@ def query_posts(
     has_email: bool | None = None,
     is_hiring: bool | None = None,
     company: str | None = None,
+    location: str | None = None,
+    source: str | None = None,
     limit: int = 100,
+    offset: int = 0,
 ) -> list[dict]:
     """Query posts with optional filters. Returns list of dicts."""
     conditions = []
@@ -418,14 +491,20 @@ def query_posts(
     if company:
         conditions.append("j.company LIKE ?")
         params.append(f"%{company}%")
+    if location:
+        conditions.append("j.location LIKE ?")
+        params.append(f"%{location}%")
+    if source:
+        conditions.append("p.source = ?")
+        params.append(source)
 
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
-    params.append(limit)
+    params.extend([limit, offset])
 
     rows = conn.execute(
         f"""SELECT DISTINCT p.id, p.author_name, p.author_profile, p.author_headline,
                    p.post_url, p.content, p.links, p.email, p.post_date, p.keyword_matched,
-                   p.is_hiring, p.domain_relevance, p.created_at,
+                   p.is_hiring, p.domain_relevance, p.created_at, p.source,
                    (SELECT GROUP_CONCAT(j.role, ', ') FROM jobs j WHERE j.post_id = p.id) as role,
                    (SELECT j2.company FROM jobs j2 WHERE j2.post_id = p.id LIMIT 1) as company,
                    (SELECT j3.location FROM jobs j3 WHERE j3.post_id = p.id LIMIT 1) as location,
@@ -435,7 +514,7 @@ def query_posts(
             {where}
             GROUP BY p.id
             ORDER BY p.created_at DESC
-            LIMIT ?""",
+            LIMIT ? OFFSET ?""",
         params,
     ).fetchall()
 
@@ -585,6 +664,7 @@ def get_unapplied_jobs(conn: sqlite3.Connection, limit: int = 600) -> list[dict]
            WHERE p.is_hiring = 1
              AND p.post_url NOT IN (SELECT job_url FROM applications)
            ORDER BY
+             p.smart_score DESC NULLS LAST,
              p.fit_score DESC NULLS LAST,
              CASE p.domain_relevance WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
              CASE WHEN p.email IS NOT NULL AND p.email != '' THEN 0 ELSE 1 END,

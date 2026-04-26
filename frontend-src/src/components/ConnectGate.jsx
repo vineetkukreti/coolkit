@@ -332,7 +332,7 @@ export default function ConnectGate({ wasConnected = false }) {
           </div>
           <h1 className="text-2xl font-bold text-fg-primary mb-2">Connect to LinkedIn</h1>
           <p className="text-sm text-fg-secondary max-w-sm mx-auto leading-relaxed">
-            JobAutomate needs a browser session to interact with LinkedIn.
+            CareerKit needs a browser session to interact with LinkedIn.
             Connect your account to get started.
           </p>
         </div>

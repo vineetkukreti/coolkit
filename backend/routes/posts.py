@@ -32,12 +32,16 @@ def api_get_posts(
     has_email: bool = None,
     is_hiring: bool = None,
     company: str = None,
+    location: str = None,
+    source: str = None,
     limit: int = 200,
+    offset: int = 0,
 ):
     conn = _get_db()
     posts = query_posts(
         conn, role=role, domain=domain, has_email=has_email,
-        is_hiring=is_hiring, company=company, limit=limit,
+        is_hiring=is_hiring, company=company, location=location,
+        source=source, limit=limit, offset=offset,
     )
     return {"posts": posts, "total": len(posts)}
 
@@ -52,13 +56,25 @@ def api_get_db_stats():
 def api_outreach_ready():
     conn = _get_db()
     posts = get_posts_for_outreach(conn)
+    # Batch load all drafts
+    post_ids = [p["id"] for p in posts]
+    if post_ids:
+        placeholders = ",".join("?" * len(post_ids))
+        drafts_raw = conn.execute(
+            f"SELECT post_id, id, subject, body, status, sent_at FROM email_outreach WHERE post_id IN ({placeholders}) ORDER BY created_at DESC",
+            post_ids
+        ).fetchall()
+        # Group by post_id (keep latest per post)
+        drafts_map = {}
+        for d in drafts_raw:
+            if d["post_id"] not in drafts_map:
+                drafts_map[d["post_id"]] = d
+    else:
+        drafts_map = {}
+
     # Attach any existing drafts/sent status from email_outreach
     for p in posts:
-        draft = conn.execute(
-            """SELECT id, subject, body, status, sent_at FROM email_outreach
-               WHERE post_id = ? ORDER BY created_at DESC LIMIT 1""",
-            (p["id"],),
-        ).fetchone()
+        draft = drafts_map.get(p["id"])
         if draft:
             d = dict(draft)
             p["draft_id"] = d["id"]
@@ -157,7 +173,7 @@ def api_find_email_for_post(post_id: int):
                 website = link
                 break
 
-    found = find_emails_for_company(company, website, row.get("location") or "")
+    found = find_emails_for_company(company, website, row.get("location") or "", author_name=row.get("author_name") or "")
 
     if found:
         best = ", ".join(f["email"] for f in found[:3])

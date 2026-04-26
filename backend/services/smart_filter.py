@@ -97,7 +97,7 @@ def _score_skill_match(content: str) -> tuple[float, str]:
         return 5.0, "no skills configured"
 
     pct = matched_weight / total_weight
-    score = min(10.0, pct * 15)  # Scale so ~66% match = 10
+    score = min(10.0, pct * 8.0 + 2.0)  # 0%→2, 30%→5.4, 60%→6.8, 100%→10
 
     top_3 = matched_skills[:3]
     return round(score, 1), f"{len(matched_skills)} skills matched ({', '.join(top_3)}{'...' if len(matched_skills) > 3 else ''})"

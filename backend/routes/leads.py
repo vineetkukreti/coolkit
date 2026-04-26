@@ -214,20 +214,14 @@ def api_get_lead(lead_id: int):
 def api_update_lead(lead_id: int, req: LeadUpdateRequest):
     """Update a lead's email_status, email, notes, or tags."""
     db_conn = _get_db()
+    ALLOWED_COLUMNS = {'email', 'notes', 'tags', 'status', 'email_status', 'company_name', 'website', 'linkedin_url', 'description'}
     updates = []
     params = []
-    if req.email_status:
-        updates.append("email_status = ?")
-        params.append(req.email_status)
-    if req.email:
-        updates.append("email = ?")
-        params.append(req.email)
-    if req.notes:
-        updates.append("notes = ?")
-        params.append(req.notes)
-    if req.tags:
-        updates.append("tags = ?")
-        params.append(req.tags)
+    update_data = req.dict(exclude_unset=False)
+    for col, val in update_data.items():
+        if col in ALLOWED_COLUMNS and val:
+            updates.append(f"{col} = ?")
+            params.append(val)
 
     if not updates:
         return {"status": "ok", "message": "Nothing to update"}

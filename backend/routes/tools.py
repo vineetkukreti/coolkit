@@ -1,8 +1,10 @@
 """AI tools, ATS scanner, follow-up, liveness, and analytics routes."""
 
 import threading
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
 
 from db import init_db
 
@@ -264,9 +266,95 @@ def api_smart_filter_top():
 
 @router.get("/api/resumes/variants")
 def api_resume_variants():
-    """List all configured resume variants."""
-    from services.resume_selector import list_variants
-    return {"variants": list_variants()}
+    """List all configured resume variants with full details."""
+    from services.resume_selector import RESUME_VARIANTS
+    result = []
+    for name, variant in RESUME_VARIANTS.items():
+        path = Path(variant["path"])
+        result.append({
+            "name": name,
+            "path": str(path),
+            "description": variant["description"],
+            "keywords": variant["keywords"],
+            "weight": variant.get("weight", 1.0),
+            "exists": path.exists(),
+            "size_kb": round(path.stat().st_size / 1024) if path.exists() else 0,
+        })
+    return {"variants": result}
+
+
+@router.post("/api/resumes/variants/{variant_name}/upload")
+def api_upload_variant(variant_name: str, file: UploadFile = File(...)):
+    """Upload a PDF for a specific resume variant."""
+    from services.resume_selector import RESUME_VARIANTS
+    if variant_name not in RESUME_VARIANTS:
+        raise HTTPException(status_code=404, detail=f"Unknown variant: {variant_name}")
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
+    # Always save as vineet_kukreti_resume.pdf — same name for all variants
+    dest = Path(f"assets/resumes/{variant_name}/vineet_kukreti_resume.pdf")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    content = file.file.read()
+    dest.write_bytes(content)
+    return {
+        "status": "ok",
+        "variant": variant_name,
+        "filename": dest.name,
+        "size_kb": round(len(content) / 1024),
+    }
+
+
+class TestSelectionRequest(BaseModel):
+    role: str = ""
+    content: str = ""
+    domain_relevance: str = ""
+    company: str = ""
+
+
+@router.post("/api/resumes/test-selection")
+def api_test_selection(req: TestSelectionRequest):
+    """Test which resume variant would be selected for given job info."""
+    from services.resume_selector import RESUME_VARIANTS, select_resume
+    text = f"{req.role} {req.content} {req.company}".lower()
+
+    # Compute scores for transparency
+    scores = {}
+    for name, variant in RESUME_VARIANTS.items():
+        if name == "default":
+            continue
+        hits = sum(1 for kw in variant["keywords"] if kw in text)
+        score = hits * variant.get("weight", 1.0)
+        if name == "healthcare-ai" and req.domain_relevance == "High":
+            score += 5.0
+        elif name == "healthcare-ai" and req.domain_relevance == "Medium":
+            score += 2.0
+        scores[name] = {"score": score, "hits": hits}
+
+    selected = select_resume(
+        role=req.role, content=req.content,
+        domain_relevance=req.domain_relevance, company=req.company,
+    )
+    selected_name = next(
+        (n for n, v in RESUME_VARIANTS.items() if v["path"] == selected),
+        "default",
+    )
+    return {"selected": selected_name, "path": selected, "scores": scores}
+
+
+@router.get("/api/dashboard/quality")
+def api_dashboard_quality():
+    """Get comprehensive application quality dashboard data."""
+    from services.quality_dashboard import get_dashboard_data
+    conn = _get_db()
+    return get_dashboard_data(conn)
+
+
+@router.get("/api/email/ab-stats")
+def api_email_ab_stats():
+    """Get A/B email variant performance statistics."""
+    from services.email_ab_test import get_ab_stats
+    conn = _get_db()
+    return get_ab_stats(conn)
 
 
 @router.post("/api/company/scan")
@@ -278,6 +366,38 @@ def api_company_scan(req: dict):
         raise HTTPException(status_code=400, detail="company required")
     conn = _get_db()
     return scan_company(company, conn=conn)
+
+
+@router.post("/api/company/connections")
+def api_company_connections(req: dict):
+    """Find existing connections at a company (referral detection)."""
+    from services.referral_detector import find_connections
+    company = req.get("company", "")
+    if not company:
+        raise HTTPException(status_code=400, detail="company required")
+    conn = _get_db()
+    return find_connections(conn, company)
+
+
+@router.post("/api/followup/auto-send")
+def api_followup_auto_send():
+    from services.email_service import start_auto_followup
+    return start_auto_followup()
+
+@router.post("/api/followup/preview/{outreach_id}")
+def api_followup_preview(outreach_id: int):
+    from services.email_service import preview_followup
+    return preview_followup(outreach_id)
+
+@router.get("/api/followup/worker-status")
+def api_followup_worker_status():
+    from services.email_service import get_followup_worker_status
+    return get_followup_worker_status()
+
+@router.post("/api/followup/worker-stop")
+def api_followup_worker_stop():
+    from services.email_service import stop_followup_worker
+    return stop_followup_worker()
 
 
 @router.post("/api/resumes/select")

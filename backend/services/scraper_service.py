@@ -469,7 +469,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
             budget = min(per_source, max_posts)
             t = threading.Thread(
                 target=_run_api_scraper,
-                args=(source, lambda p, c, mp=budget, oe=on_event, sk=source: scrape_generic_html(sk, p, c, mp, oe), budget, on_event),
+                args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_html(sk, p, c, max_posts, on_event), budget, on_event),
                 daemon=True,
             )
             threads.append(t)
@@ -480,7 +480,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
             budget = min(per_source, max_posts)
             t = threading.Thread(
                 target=_run_api_scraper,
-                args=(source, lambda p, c, mp=budget, oe=on_event, sk=source: scrape_generic_api(sk, p, c, mp, oe), budget, on_event),
+                args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_api(sk, p, c, max_posts, on_event), budget, on_event),
                 daemon=True,
             )
             threads.append(t)

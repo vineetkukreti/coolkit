@@ -27,7 +27,7 @@ from pathlib import Path
 
 RESUME_VARIANTS = {
     "healthcare-ai": {
-        "path": "assets/resume-healthcare-ai.pdf",
+        "path": "assets/resumes/healthcare-ai/vineet_kukreti_resume.pdf",
         "description": "Healthcare AI focus — oncology, clinical NLP, HIPAA, medical pipelines",
         "keywords": [
             "healthcare", "clinical", "medical", "hospital", "patient",
@@ -39,7 +39,7 @@ RESUME_VARIANTS = {
         "weight": 1.5,  # Boost for domain specialty
     },
     "genai-platform": {
-        "path": "assets/resume-genai-platform.pdf",
+        "path": "assets/resumes/genai-platform/vineet_kukreti_resume.pdf",
         "description": "GenAI/LLM focus — RAG, agents, prompt engineering, LLM systems",
         "keywords": [
             "llm", "large language model", "genai", "generative ai",
@@ -52,7 +52,7 @@ RESUME_VARIANTS = {
         "weight": 1.3,
     },
     "data-engineering": {
-        "path": "assets/resume-data-engineering.pdf",
+        "path": "assets/resumes/data-engineering/vineet_kukreti_resume.pdf",
         "description": "Data/ML engineering focus — pipelines, ETL, MLOps, infrastructure",
         "keywords": [
             "data engineer", "data pipeline", "etl", "data warehouse",
@@ -64,8 +64,8 @@ RESUME_VARIANTS = {
         "weight": 1.0,
     },
     "default": {
-        "path": "assets/resume.pdf",
-        "description": "General AI/ML engineer — balanced across all skills",
+        "path": "assets/resumes/default/vineet_kukreti_resume.pdf",
+        "description": "General AI/ML engineer — balanced across all skills (uses GenAI variant)",
         "keywords": [],  # Matches everything as fallback
         "weight": 0.5,
     },

@@ -33,6 +33,13 @@ const HIRING_OPTIONS = [
   { label: "No", value: "false" },
 ];
 
+const SOURCE_OPTIONS = [
+  { label: "All Sources", value: "" },
+  { label: "LinkedIn", value: "linkedin" },
+  { label: "Naukri", value: "naukri" },
+  { label: "Wellfound", value: "wellfound" },
+];
+
 function HiringBadge({ value }) {
   if (value === true || value === "yes" || value === "true") {
     return (
@@ -566,6 +573,8 @@ export default function Posts() {
   const [domain, setDomain] = useState("");
   const [hiring, setHiring] = useState("");
   const [hasEmail, setHasEmail] = useState(false);
+  const [source, setSource] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
 
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -580,6 +589,8 @@ export default function Posts() {
       if (domain) params.domain_relevance = domain;
       if (hiring !== "") params.is_hiring = hiring === "true";
       if (hasEmail) params.has_email = true;
+      if (source) params.source = source;
+      if (locationFilter) params.location = locationFilter;
       const data = await api.getPosts(params);
       setPosts(data.posts || []);
       setTotal(data.total || 0);
@@ -590,7 +601,7 @@ export default function Posts() {
     } finally {
       setLoading(false);
     }
-  }, [domain, hiring, hasEmail, offset]);
+  }, [domain, hiring, hasEmail, source, locationFilter, offset]);
 
   useEffect(() => {
     fetchPosts();
@@ -812,6 +823,16 @@ export default function Posts() {
           </div>
           <Select value={domain} onChange={setDomain} options={RELEVANCE_OPTIONS} />
           <Select value={hiring} onChange={setHiring} options={HIRING_OPTIONS} />
+          <Select value={source} onChange={setSource} options={SOURCE_OPTIONS} />
+          <div className="relative min-w-[140px]">
+            <input
+              type="text"
+              placeholder="Location..."
+              value={locationFilter}
+              onChange={(e) => { setLocationFilter(e.target.value); setOffset(0); }}
+              className="w-full bg-bg-secondary border border-border text-fg-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent placeholder:text-fg-muted"
+            />
+          </div>
           <button
             onClick={() => setHasEmail((v) => !v)}
             className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${

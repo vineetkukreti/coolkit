@@ -224,7 +224,7 @@ def _fill_form_fields(page, job_context: dict = None):
             from services.resume_selector import get_resume_for_job
             resume_path = Path(get_resume_for_job(job_context))
             if not resume_path.exists():
-                resume_path = Path(PROFILE.get("resume_path", "assets/resume.pdf"))
+                resume_path = Path(PROFILE.get("resume_path", "assets/resumes/default/vineet_kukreti_resume.pdf"))
             if resume_path.exists():
                 upload.set_input_files(str(resume_path))
     except Exception:
@@ -469,10 +469,11 @@ def _llm_answer_question(question: str, job_context: dict = None) -> str:
 
 QUESTION: {question}
 
-CANDIDATE: Vineet Kukreti, AI Engineer, {PROFILE.get('experience_years', 2)} years exp.
-Currently building healthcare AI systems (fax automation for US hospitals).
-Skills: Python, FastAPI, LLMs, RAG, Neo4j, knowledge graphs, clinical NLP.
-Projects: Enterprise RAG (10K+ docs), Healthcare AI pipeline, Biomedical ETL (50K+ records/day).
+CANDIDATE: Vineet Kukreti, AI Engineer, {PROFILE.get('experience_years', 2)} years exp at Southguild Technologies.
+Building production healthcare AI platforms across dermatopathology and oncology.
+Skills: Python, FastAPI, Neo4j, LLMs (Claude/OpenAI/Cohere), knowledge graphs, Docker.
+Key projects: PathAssist (98.8% accuracy NLP-to-Cypher retrieval), Target Discovery ETL (100K+ records), Navya Oncology Pipeline (80% less manual work).
+Achievements: 3 patents, 2 IEEE papers, PMSS scholar.
 
 ROLE: {role} at {company}
 JOB CONTEXT: {content[:300] if content else 'Not available'}
@@ -561,8 +562,10 @@ def _email_apply(conn, job: dict) -> dict:
 
     # Take first email if multiple
     email = email.split(",")[0].strip()
-    if not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
-        return {"status": "failed", "method": "email", "error": f"Invalid email: {email}"}
+    from services.email_service import validate_email_before_send
+    check = validate_email_before_send(email)
+    if not check["valid"]:
+        return {"status": "failed", "method": "email", "error": check["reason"]}
 
     try:
         from services.email_service import send_email_with_resume

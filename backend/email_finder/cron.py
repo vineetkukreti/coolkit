@@ -5,40 +5,42 @@ Automated Email Finder — Cron Job
 Runs periodically to find and verify emails for posts and startup leads
 that don't have emails yet.
 
-Strategies (in order of reliability):
-1. Company website scraping (contact, about, careers, team pages)
-2. DuckDuckGo search ("{company} email contact")
-3. Google-style search via DuckDuckGo ("{company} careers hiring email")
-4. LinkedIn company page scraping (if URL available)
-5. Pattern generation from domain (info@, contact@, hr@, careers@)
-6. SMTP envelope verification (RCPT TO check without sending)
-
-Every found email is verified via:
-- MX record check (domain accepts mail?)
-- SMTP RCPT TO verification (does the mailbox exist?)
+Uses shared strategies from strategies.py with full SMTP verification.
 
 Usage:
-    python email_finder_cron.py                    # Run once, 20 leads
-    python email_finder_cron.py --max 50           # Run once, 50 leads
-    python email_finder_cron.py --target posts     # Only posts
-    python email_finder_cron.py --target leads     # Only startup leads
-    python email_finder_cron.py --target both      # Both (default)
-    python email_finder_cron.py --verify-only      # Re-verify existing emails
+    python -m email_finder.cron                     # Run once, 20 leads
+    python -m email_finder.cron --max 50            # Run once, 50 leads
+    python -m email_finder.cron --target posts      # Only posts
+    python -m email_finder.cron --target leads      # Only startup leads
+    python -m email_finder.cron --target both       # Both (default)
+    python -m email_finder.cron --verify-only       # Re-verify existing emails
 """
 
 import re
-import dns.resolver
-import smtplib
-import socket
 import time
 import random
 import sqlite3
-import requests
 import logging
-from urllib.parse import urljoin, urlparse, quote_plus
-from bs4 import BeautifulSoup
 from pathlib import Path
 from datetime import datetime
+
+from email_finder.strategies import (
+    strategy_hunter_io,
+    strategy_website,
+    strategy_duckduckgo,
+    strategy_google_search,
+    strategy_person_patterns,
+    strategy_generic_patterns,
+    infer_domain,
+    extract_domain,
+    score_email,
+    verify_mx,
+    verify_smtp,
+    verify_email_full,
+    verify_batch,
+    is_junk_email,
+    OUTREACH_PREFIXES,
+)
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -55,384 +57,118 @@ logging.basicConfig(
 )
 log = logging.getLogger("email_finder")
 
-# ─── Config ──────────────────────────────────────────────────────────────────
 
-USER_AGENTS = [
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-]
-
-EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", re.IGNORECASE)
-
-JUNK_DOMAINS = {
-    "example.com", "test.com", "email.com", "domain.com", "yourcompany.com",
-    "sentry.io", "wixpress.com", "googleapis.com", "cloudflare.com",
-    "gravatar.com", "wordpress.com", "w3.org", "schema.org",
-    "facebook.com", "twitter.com", "google.com", "github.com", "duckduckgo.com",
-    "jquery.com", "bootstrap.com", "fontawesome.com", "tailwindcss.com",
-    "linkedin.com", "instagram.com", "youtube.com", "tiktok.com",
-    "apple.com", "microsoft.com", "amazon.com",
-}
-
-JUNK_PREFIXES = {"noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster", "webmaster"}
-
-CONTACT_PATHS = [
-    "/contact", "/contact-us", "/contactus",
-    "/about", "/about-us", "/aboutus",
-    "/careers", "/jobs", "/career", "/hiring", "/join-us", "/work-with-us",
-    "/team", "/our-team", "/people", "/leadership",
-    "/support", "/help",
-    "/",
-]
-
-# Email prefixes to try for pattern generation (ordered by outreach value)
-OUTREACH_PREFIXES = ["careers", "hr", "hiring", "jobs", "info", "contact", "hello", "team", "people", "admin"]
-GENERIC_PREFIXES = ["support", "office", "business", "general"]
-
-
-def _headers():
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-
-# ─── Email Validation ────────────────────────────────────────────────────────
-
-def _is_junk(email: str) -> bool:
-    """Filter obviously invalid/useless emails."""
-    email = email.lower().strip()
-    if len(email) < 5 or len(email) > 80:
-        return True
-    if "@" not in email:
-        return True
-    local, domain = email.rsplit("@", 1)
-    if domain in JUNK_DOMAINS:
-        return True
-    if local in JUNK_PREFIXES:
-        return True
-    if any(ext in email for ext in [".png", ".jpg", ".gif", ".svg", ".css", ".js"]):
-        return True
-    # Skip if local part is too long or mostly numbers
-    if len(local) > 30:
-        return True
-    digits = sum(1 for c in local if c.isdigit())
-    if len(local) > 4 and digits / len(local) > 0.6:
-        return True
-    return False
-
-
-def verify_mx(domain: str) -> list[str]:
-    """Check if domain has MX records. Returns list of MX hosts or empty."""
-    try:
-        answers = dns.resolver.resolve(domain, "MX", lifetime=5)
-        return [str(r.exchange).rstrip(".") for r in answers]
-    except Exception:
-        return []
-
-
-def verify_smtp(email: str, mx_host: str = "", timeout: int = 10) -> bool:
-    """Verify email exists via SMTP RCPT TO (no email actually sent).
-
-    Returns True if the server accepts the recipient, False if rejected,
-    True if we can't determine (fail-open to avoid losing valid emails).
-    """
-    domain = email.split("@")[1] if "@" in email else ""
-    if not domain:
-        return False
-
-    # Get MX host if not provided
-    if not mx_host:
-        mx_hosts = verify_mx(domain)
-        if not mx_hosts:
-            return False
-        mx_host = mx_hosts[0]
-
-    try:
-        smtp = smtplib.SMTP(timeout=timeout)
-        smtp.connect(mx_host, 25)
-        smtp.helo("verify.local")
-        smtp.mail("verify@verify.local")
-        code, _ = smtp.rcpt(email)
-        smtp.quit()
-        # 250 = accepted, 550/551/552/553 = rejected
-        if code == 250:
-            return True
-        if code >= 550:
-            return False
-        return True  # unknown response, assume valid
-    except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError,
-            socket.timeout, socket.gaierror, ConnectionRefusedError, OSError):
-        return True  # can't connect = fail open (many servers block port 25)
-    except Exception:
-        return True  # fail open
-
-
-def verify_email_full(email: str) -> dict:
-    """Full verification: MX + SMTP. Returns {valid, mx_ok, smtp_ok, mx_host}."""
-    domain = email.split("@")[1] if "@" in email else ""
-    result = {"email": email, "valid": False, "mx_ok": False, "smtp_ok": False, "mx_host": ""}
-
-    if not domain or _is_junk(email):
-        return result
-
-    mx_hosts = verify_mx(domain)
-    if not mx_hosts:
-        return result
-
-    result["mx_ok"] = True
-    result["mx_host"] = mx_hosts[0]
-
-    smtp_ok = verify_smtp(email, mx_hosts[0])
-    result["smtp_ok"] = smtp_ok
-    result["valid"] = smtp_ok
-
-    return result
-
-
-# ─── Email Extraction ────────────────────────────────────────────────────────
-
-def _extract_emails_from_html(html: str) -> set:
-    """Extract emails from HTML via mailto links and text regex."""
-    soup = BeautifulSoup(html, "lxml")
-    emails = set()
-
-    # mailto links
-    for a in soup.find_all("a", href=True):
-        if "mailto:" in a["href"]:
-            email = a["href"].split("mailto:")[1].split("?")[0].strip().lower()
-            if email and not _is_junk(email):
-                emails.add(email)
-
-    # Text content
-    text = soup.get_text(separator=" ")
-    for m in EMAIL_RE.findall(text):
-        m = m.lower()
-        if not _is_junk(m):
-            emails.add(m)
-
-    return emails
-
-
-def _fetch(url: str, timeout: int = 10) -> str | None:
-    try:
-        resp = requests.get(url, headers=_headers(), timeout=timeout, allow_redirects=True)
-        if resp.status_code == 200 and "text/html" in resp.headers.get("content-type", ""):
-            return resp.text
-    except Exception:
-        pass
-    return None
-
-
-# ─── Strategy 1: Website Scraping ────────────────────────────────────────────
-
-def strategy_website(website: str) -> list[str]:
-    """Crawl company website for emails."""
-    if not website:
-        return []
-    if not website.startswith("http"):
-        website = "https://" + website
-    website = website.rstrip("/")
-
-    found = set()
-    for path in CONTACT_PATHS:
-        url = website + path if path != "/" else website
-        html = _fetch(url)
-        if html:
-            found.update(_extract_emails_from_html(html))
-        time.sleep(random.uniform(0.5, 1.5))
-        if len(found) >= 5:
-            break
-    return list(found)
-
-
-# ─── Strategy 2: DuckDuckGo Search ──────────────────────────────────────────
-
-def strategy_duckduckgo(company: str, extra: str = "") -> list[str]:
-    """Search DuckDuckGo for company emails."""
-    queries = [
-        f'"{company}" email contact',
-        f'"{company}" careers hiring email {extra}'.strip(),
-        f'"{company}" hr recruitment email',
-    ]
-    found = set()
-
-    for query in queries:
-        try:
-            resp = requests.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": query},
-                headers=_headers(),
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                continue
-
-            # Extract from search results
-            found.update(_extract_emails_from_html(resp.text))
-
-            # Follow top 2 result links
-            soup = BeautifulSoup(resp.text, "lxml")
-            for link in soup.select("a.result__a")[:2]:
-                href = link.get("href", "")
-                if href and "duckduckgo" not in href:
-                    page = _fetch(href)
-                    if page:
-                        found.update(_extract_emails_from_html(page))
-                    time.sleep(random.uniform(0.5, 1.0))
-
-        except Exception:
-            continue
-        time.sleep(random.uniform(1.5, 3.0))
-
-    return list(found)
-
-
-# ─── Strategy 3: Pattern Generation + Verification ──────────────────────────
-
-def strategy_patterns(company: str, website: str) -> list[str]:
-    """Generate common email patterns and verify which ones exist."""
-    if not website:
-        return []
-
-    if not website.startswith("http"):
-        website = "https://" + website
-    domain = urlparse(website).netloc
-    if not domain:
-        return []
-    if domain.startswith("www."):
-        domain = domain[4:]
-
-    # Check domain has MX
-    mx_hosts = verify_mx(domain)
-    if not mx_hosts:
-        return []
-
-    mx_host = mx_hosts[0]
-    verified = []
-
-    # Try outreach-valuable prefixes first, then generic
-    for prefix in OUTREACH_PREFIXES + GENERIC_PREFIXES:
-        email = f"{prefix}@{domain}"
-        if verify_smtp(email, mx_host, timeout=8):
-            verified.append(email)
-            if len(verified) >= 3:
-                break
-        time.sleep(random.uniform(0.3, 0.8))
-
-    return verified
-
-
-# ─── Strategy 4: LinkedIn Company Page ───────────────────────────────────────
-
-def strategy_linkedin_page(linkedin_url: str) -> list[str]:
-    """Try to get emails from LinkedIn company page (public view)."""
-    if not linkedin_url:
-        return []
-    # LinkedIn blocks scraping, but sometimes company websites are linked
-    # and we can follow those
-    html = _fetch(linkedin_url)
-    if not html:
-        return []
-    soup = BeautifulSoup(html, "lxml")
-    # Look for external website links
-    found = set()
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if href.startswith("http") and "linkedin.com" not in href:
-            page = _fetch(href)
-            if page:
-                found.update(_extract_emails_from_html(page))
-            if found:
-                break
-    return list(found)
-
-
-# ─── Score & Rank Emails ─────────────────────────────────────────────────────
-
-def score_email(email: str) -> int:
-    """Score email for outreach quality."""
-    email = email.lower()
-    local = email.split("@")[0]
-    domain = email.split("@")[1] if "@" in email else ""
-    score = 10
-
-    # Career/HR emails = gold
-    if any(local.startswith(p) for p in ["hr", "careers", "hiring", "jobs", "recruit"]):
-        score += 30
-    # Contact emails = great
-    elif any(local.startswith(p) for p in ["contact", "info", "hello", "team"]):
-        score += 20
-    # Named person emails
-    elif "." in local:  # john.doe@company.com
-        score += 15
-    # Admin/generic
-    elif any(local.startswith(p) for p in ["admin", "office", "business"]):
-        score += 10
-
-    # Company domain > generic
-    generic = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "protonmail.com"}
-    if domain not in generic:
-        score += 10
-
-    return score
-
-
-# ─── Main: Find emails for one company ──────────────────────────────────────
+# ─── Main: Find emails for one company (with full verification) ──────────────
 
 def find_verified_emails(
     company: str,
     website: str = "",
     location: str = "",
     linkedin_url: str = "",
+    author_name: str = "",
 ) -> list[dict]:
     """Find and verify emails for a company. Returns ranked list of verified emails."""
 
-    all_emails = set()
-    sources = {}  # email -> source strategy
+    all_emails = {}  # email -> {email, source, ...}
 
-    # Strategy 1: Website scraping (most reliable)
+    def _collect(items):
+        for item in items:
+            if item["email"] not in all_emails:
+                all_emails[item["email"]] = item
+
+    domain = extract_domain(website)
+
+    # Infer domain if not available
+    if not domain and company:
+        inferred = infer_domain(company)
+        if inferred:
+            domain = inferred
+            log.info(f"  Inferred domain for {company}: {domain}")
+
+    # Strategy 1: Hunter.io
+    if domain:
+        _collect(strategy_hunter_io(domain))
+
+    # Strategy 2: Website scraping
     if website:
-        for e in strategy_website(website):
-            all_emails.add(e)
-            sources[e] = "website"
+        _collect(strategy_website(website))
 
-    # Strategy 2: DuckDuckGo search
+    # Strategy 3: DuckDuckGo search
     extra = location.split(",")[0] if location else ""
-    for e in strategy_duckduckgo(company, extra):
-        if e not in all_emails:
-            all_emails.add(e)
-            sources[e] = "search"
+    _collect(strategy_duckduckgo(company, extra))
 
-    # Strategy 3: LinkedIn page
+    # Strategy 4: Google search fallback
+    if len(all_emails) < 2:
+        _collect(strategy_google_search(company, extra))
+
+    # Strategy 5: LinkedIn company page (follow external links)
     if linkedin_url and not all_emails:
-        for e in strategy_linkedin_page(linkedin_url):
-            if e not in all_emails:
-                all_emails.add(e)
-                sources[e] = "linkedin"
+        from email_finder.strategies import fetch_page, extract_emails_from_html
+        from bs4 import BeautifulSoup
+        html = fetch_page(linkedin_url)
+        if html:
+            soup = BeautifulSoup(html, "lxml")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("http") and "linkedin.com" not in href:
+                    page = fetch_page(href)
+                    if page:
+                        for e in extract_emails_from_html(page):
+                            if e not in all_emails:
+                                all_emails[e] = {
+                                    "email": e, "source": "linkedin",
+                                    "score": score_email(e, source="search"),
+                                    "verified": "unknown",
+                                }
+                    if all_emails:
+                        break
 
-    # Strategy 4: Pattern generation + SMTP verify (always try if we have a website)
-    if website:
-        for e in strategy_patterns(company, website):
-            if e not in all_emails:
-                all_emails.add(e)
-                sources[e] = "pattern_verified"
+    # Strategy 6: Person-name patterns
+    if author_name and domain:
+        person_guesses = strategy_person_patterns(author_name, domain)
+        # Verify person guesses via SMTP
+        for item in person_guesses:
+            if item["email"] not in all_emails:
+                all_emails[item["email"]] = item
 
-    # Strategy 5: If we have a company name but no website, try to find the domain first
-    if not all_emails and not website:
-        # Try common domain patterns: company.com, companyname.com
+    # Strategy 7: Generic patterns + SMTP verify
+    if domain:
+        mx_hosts = verify_mx(domain)
+        if mx_hosts:
+            mx_host = mx_hosts[0]
+            for prefix in OUTREACH_PREFIXES[:6]:
+                email = f"{prefix}@{domain}"
+                if email not in all_emails:
+                    status = verify_smtp(email, mx_host, timeout=8)
+                    if status != "rejected":
+                        all_emails[email] = {
+                            "email": email,
+                            "source": "pattern_verified",
+                            "score": score_email(email, verified=status, source="pattern_guess"),
+                            "verified": status,
+                        }
+                    if len(all_emails) >= 5:
+                        break
+                time.sleep(random.uniform(0.3, 0.8))
+
+    # Strategy 8: Domain guess (no website, no domain yet)
+    if not all_emails and not domain:
         clean = re.sub(r'[^a-zA-Z0-9]', '', company.lower())
-        for domain_guess in [f"{clean}.com", f"{clean}.in", f"{clean}.io", f"{clean}.co"]:
+        for tld in [".com", ".in", ".io", ".co", ".ai"]:
+            domain_guess = f"{clean}{tld}"
             mx = verify_mx(domain_guess)
             if mx:
                 log.debug(f"  Found domain via guess: {domain_guess}")
                 for prefix in OUTREACH_PREFIXES[:5]:
                     email = f"{prefix}@{domain_guess}"
-                    if verify_smtp(email, mx[0], timeout=8):
-                        all_emails.add(email)
-                        sources[email] = "domain_guess_verified"
+                    status = verify_smtp(email, mx[0], timeout=8)
+                    if status != "rejected":
+                        all_emails[email] = {
+                            "email": email,
+                            "source": "domain_guess_verified",
+                            "score": score_email(email, verified=status, source="pattern_guess"),
+                            "verified": status,
+                        }
                     time.sleep(random.uniform(0.3, 0.6))
                 if all_emails:
                     break
@@ -440,24 +176,24 @@ def find_verified_emails(
     if not all_emails:
         return []
 
-    # Verify all found emails
-    verified = []
-    for email in all_emails:
-        v = verify_email_full(email)
-        if v["valid"]:
-            verified.append({
-                "email": email,
-                "source": sources.get(email, "unknown"),
-                "score": score_email(email),
-                "mx_ok": v["mx_ok"],
-                "smtp_ok": v["smtp_ok"],
-            })
-        else:
-            log.debug(f"  Rejected {email}: mx={v['mx_ok']} smtp={v['smtp_ok']}")
+    # Verify all non-Hunter emails that haven't been SMTP-verified yet
+    to_verify = [item for item in all_emails.values()
+                 if item.get("verified") == "unknown" and item.get("source") != "hunter_io"]
+    already_good = [item for item in all_emails.values()
+                    if item.get("verified") != "unknown" or item.get("source") == "hunter_io"]
 
-    # Sort by score (best first)
-    verified.sort(key=lambda x: x["score"], reverse=True)
-    return verified
+    verified = verify_batch(to_verify, timeout=8)
+
+    # Combine and sort
+    final = already_good + verified
+    final.sort(key=lambda x: x["score"], reverse=True)
+
+    # Add backward-compat fields
+    for item in final:
+        item["mx_ok"] = item.get("verified") != "rejected"
+        item["smtp_ok"] = item.get("verified") == "accepted"
+
+    return final
 
 
 # ─── Cron: Process all leads/posts without emails ───────────────────────────
@@ -559,7 +295,7 @@ def run_cron(max_items: int = 20, target: str = "both"):
         stats["searched"] += 1
 
         try:
-            results = find_verified_emails(company, website, location, linkedin_url)
+            results = find_verified_emails(company, website, location, linkedin_url, author_name=author)
 
             if results:
                 best_emails = [r["email"] for r in results[:3]]
@@ -569,7 +305,7 @@ def run_cron(max_items: int = 20, target: str = "both"):
 
                 log.info(f"    FOUND {len(results)} verified emails: {email_str}")
                 for r in results[:3]:
-                    log.info(f"      [{r['score']:2d}] {r['email']} via {r['source']} (mx={r['mx_ok']} smtp={r['smtp_ok']})")
+                    log.info(f"      [{r['score']:2d}] {r['email']} via {r['source']} [{r.get('verified', '?')}]")
 
                 # Save to DB
                 if item_type == "post":
@@ -577,7 +313,6 @@ def run_cron(max_items: int = 20, target: str = "both"):
                         "UPDATE posts SET email = ?, updated_at = datetime('now') WHERE id = ?",
                         (email_str, item_id),
                     )
-                    # Also update same-company posts
                     if company:
                         conn.execute(
                             """UPDATE posts SET email = ?, updated_at = datetime('now')
@@ -666,21 +401,25 @@ def verify_existing(max_items: int = 50):
 
 if __name__ == "__main__":
     import argparse
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
     parser = argparse.ArgumentParser(description="Email Finder Cron Job")
     parser.add_argument("--max", type=int, default=20, help="Max items to process per run")
     parser.add_argument("--target", choices=["posts", "leads", "both"], default="both")
     parser.add_argument("--verify-only", action="store_true", help="Only verify existing emails")
     parser.add_argument("--test", type=str, help="Test with a single company name")
     parser.add_argument("--website", type=str, default="", help="Website for --test")
+    parser.add_argument("--author", type=str, default="", help="Author name for --test")
     args = parser.parse_args()
 
     if args.test:
-        log.info(f"Testing: {args.test} (website: {args.website or 'none'})")
-        results = find_verified_emails(args.test, args.website)
+        log.info(f"Testing: {args.test} (website: {args.website or 'none'}, author: {args.author or 'none'})")
+        results = find_verified_emails(args.test, args.website, author_name=args.author)
         if results:
             log.info(f"Found {len(results)} verified emails:")
             for r in results:
-                log.info(f"  [{r['score']:2d}] {r['email']} via {r['source']} mx={r['mx_ok']} smtp={r['smtp_ok']}")
+                log.info(f"  [{r['score']:2d}] {r['email']} via {r['source']} [{r.get('verified', '?')}]")
         else:
             log.info("No verified emails found")
     elif args.verify_only:

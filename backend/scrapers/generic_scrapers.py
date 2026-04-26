@@ -26,7 +26,7 @@ def scrape_generic_html(source_key: str, page, conn, max_posts: int = 50, on_eve
     Reads config from GENERIC_HTML_SOURCES[source_key].
     """
     config = GENERIC_HTML_SOURCES.get(source_key)
-    if not config:
+    if not config or config.get("enabled") is False:
         return []
 
     all_posts = []
@@ -113,7 +113,7 @@ def scrape_generic_api(source_key: str, page, conn, max_posts: int = 50, on_even
     Reads config from GENERIC_API_SOURCES[source_key].
     """
     config = GENERIC_API_SOURCES.get(source_key)
-    if not config:
+    if not config or config.get("enabled") is False:
         return []
 
     all_posts = []

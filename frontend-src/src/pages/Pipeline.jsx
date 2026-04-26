@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
+import FilterBar, { useFilters, applyFilters, dateRangeMatch } from "../components/FilterBar";
 
 const STAGES = [
   { key: "applied", label: "Applied", color: "fg-muted", dot: "bg-fg-muted" },
@@ -128,9 +129,19 @@ export default function Pipeline() {
   const [leads, setLeads] = useState([]);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [view, setView] = useState("board"); // board | list
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
+
+  const pipelineFilterDefs = [
+    { key: 'stage', type: 'select', label: 'Stage', options: [
+      { label: 'All Stages', value: '' },
+      ...STAGES.map(s => ({ label: s.label, value: s.key })),
+    ], match: (item, v) => item.stage === v },
+    { key: 'date_range', type: 'dateRange', match: dateRangeMatch('created_at') },
+  ];
+  const pipelineFilters = useFilters(pipelineFilterDefs);
 
   useEffect(() => {
     load();
@@ -138,11 +149,13 @@ export default function Pipeline() {
 
   async function load() {
     setLoading(true);
+    setError(null);
     try {
       const [pipeline, pStats] = await Promise.all([api.getPipeline(), api.getPipelineStats()]);
       setLeads(pipeline.leads || []);
       setStats(pStats);
     } catch (err) {
+      setError(err.message);
       toast({ type: "error", title: "Failed to load pipeline", description: err.message });
     } finally {
       setLoading(false);
@@ -183,10 +196,11 @@ export default function Pipeline() {
   }
 
   const q = search.trim().toLowerCase();
-  const filteredLeads = q
+  let filteredLeads = q
     ? leads.filter((l) => [l.recipient_name, l.recipient_email, l.role, l.company, l.location, l.stage]
         .filter(Boolean).join(" ").toLowerCase().includes(q))
     : leads;
+  filteredLeads = applyFilters(filteredLeads, pipelineFilters.values, pipelineFilterDefs);
 
   return (
     <div className="min-h-screen bg-bg-primary text-fg-primary font-sans">
@@ -233,6 +247,19 @@ export default function Pipeline() {
           )}
         </div>
 
+        {/* Filters */}
+        <div className="mb-4">
+          <FilterBar
+            filters={pipelineFilterDefs}
+            values={pipelineFilters.values}
+            onChange={pipelineFilters.setFilter}
+            onClear={pipelineFilters.clearFilters}
+            isFiltered={pipelineFilters.isFiltered}
+            resultCount={filteredLeads.length}
+            totalCount={leads.length}
+          />
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-5 gap-3 mb-6">
           {[
@@ -253,6 +280,12 @@ export default function Pipeline() {
         {loading ? (
           <div className="flex items-center justify-center py-20 text-fg-muted text-sm">
             <RefreshCw size={16} className="animate-spin mr-2" /> Loading pipeline...
+          </div>
+        ) : error ? (
+          <div className="bg-danger-bg border border-danger/20 rounded-xl p-6 text-center">
+            <p className="text-danger font-medium">Failed to load pipeline</p>
+            <p className="text-fg-muted text-sm mt-1">{error}</p>
+            <button onClick={load} className="mt-3 px-4 py-2 bg-accent text-white text-sm rounded-lg">Retry</button>
           </div>
         ) : leads.length === 0 ? (
           <div className="bg-bg-secondary rounded-xl border border-border px-8 py-16 text-center">

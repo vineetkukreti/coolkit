@@ -551,7 +551,7 @@ ATS_COMPANIES = {
         "replit", "vercel", "supabase", "neon",
     ],
     "lever": [
-        "netflix", "twitch", "shopify", "coursera",
+        "spotify", "meesho", "paytm",
     ],
     "ashby": [
         "ramp", "linear", "vercel",

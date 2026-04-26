@@ -1,22 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import { ToastProvider } from './components/Toast'
 import BrowserBar from './components/BrowserBar'
 import ConnectGate, { useLinkedInStatus } from './components/ConnectGate'
 import Dashboard from './pages/Dashboard'
-import JobSearch from './pages/JobSearch'
-import Posts from './pages/Posts'
-import EmailOutreach from './pages/EmailOutreach'
-import AppHistory from './pages/AppHistory'
-import SettingsPage from './pages/Settings'
-import Scraper from './pages/Scraper'
+import FindJobs from './pages/FindJobs'
+import ApplyPage from './pages/ApplyPage'
+import OutreachPage from './pages/OutreachPage'
+import InsightsPage from './pages/InsightsPage'
 import Pipeline from './pages/Pipeline'
-import EmailAnalytics from './pages/EmailAnalytics'
-import AITools from './pages/AITools'
-import StartupLeads from './pages/StartupLeads'
 import LeadDetail from './pages/LeadDetail'
-import AutoApply from './pages/AutoApply'
+import AITools from './pages/AITools'
+import SkillsIntelligence from './pages/SkillsIntelligence'
+import SettingsPage from './pages/Settings'
 import { api } from './lib/api'
 import { AlertTriangle, X } from 'lucide-react'
 
@@ -102,9 +99,9 @@ function AppShell() {
         <aside className="w-60 min-h-screen bg-bg-secondary border-r border-border flex flex-col px-4 py-6 shrink-0">
           <div className="flex items-center gap-2.5 px-2">
             <div className="w-9 h-9 bg-accent rounded-lg flex items-center justify-center">
-              <span className="text-fg-inverse font-bold text-sm">JA</span>
+              <span className="text-fg-inverse font-bold text-sm">CK</span>
             </div>
-            <span className="text-lg font-bold text-fg-primary">JobAutomate</span>
+            <span className="text-lg font-bold text-fg-primary">CareerKit</span>
           </div>
         </aside>
         <ConnectGate wasConnected={wasEverConnected.current} />
@@ -147,19 +144,28 @@ function AppShell() {
 
         <main className="flex-1 overflow-auto">
           <Routes>
+            {/* Primary routes */}
             <Route path="/" element={<Dashboard />} />
-            <Route path="/leads" element={<StartupLeads />} />
-            <Route path="/search" element={<JobSearch />} />
-            <Route path="/posts" element={<Posts />} />
-            <Route path="/email" element={<EmailOutreach />} />
+            <Route path="/find" element={<FindJobs />} />
+            <Route path="/apply" element={<ApplyPage />} />
+            <Route path="/outreach" element={<OutreachPage />} />
             <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/pipeline/:id" element={<LeadDetail />} />
-            <Route path="/analytics" element={<EmailAnalytics />} />
+            <Route path="/insights" element={<InsightsPage />} />
             <Route path="/ai-tools" element={<AITools />} />
-            <Route path="/auto-apply" element={<AutoApply />} />
-            <Route path="/history" element={<AppHistory />} />
-            <Route path="/scraper" element={<Scraper />} />
+            <Route path="/skills" element={<SkillsIntelligence />} />
             <Route path="/settings" element={<SettingsPage />} />
+
+            {/* Redirects from old routes */}
+            <Route path="/search" element={<Navigate to="/find?tab=search" replace />} />
+            <Route path="/scraper" element={<Navigate to="/find?tab=scraper" replace />} />
+            <Route path="/posts" element={<Navigate to="/find?tab=posts" replace />} />
+            <Route path="/auto-apply" element={<Navigate to="/apply?tab=engine" replace />} />
+            <Route path="/history" element={<Navigate to="/apply?tab=history" replace />} />
+            <Route path="/email" element={<Navigate to="/outreach?tab=email" replace />} />
+            <Route path="/leads" element={<Navigate to="/outreach?tab=leads" replace />} />
+            <Route path="/analytics" element={<Navigate to="/insights?tab=analytics" replace />} />
+            <Route path="/quality" element={<Navigate to="/insights?tab=quality" replace />} />
           </Routes>
         </main>
       </div>

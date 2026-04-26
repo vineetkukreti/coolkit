@@ -110,7 +110,7 @@ function StepWelcome({ onNext }) {
         <div className="w-14 h-14 bg-accent-bg rounded-2xl flex items-center justify-center mx-auto mb-4">
           <Sparkles size={28} className="text-accent" />
         </div>
-        <h2 className="text-2xl font-bold text-fg-primary mb-2">Welcome to JobAutomate</h2>
+        <h2 className="text-2xl font-bold text-fg-primary mb-2">Welcome to CareerKit</h2>
         <p className="text-fg-secondary text-sm">
           Automate your job search on LinkedIn with AI-powered tools
         </p>
@@ -406,7 +406,7 @@ function StepLinkedIn({ onNext, onBack }) {
       <div>
         <h2 className="text-xl font-bold text-fg-primary mb-1">Connect Your LinkedIn Account</h2>
         <p className="text-sm text-fg-secondary leading-relaxed">
-          JobAutomate uses a real browser session to interact with LinkedIn — just like you would manually.
+          CareerKit uses a real browser session to interact with LinkedIn — just like you would manually.
           You'll need to log in once and your session is saved for future runs.
         </p>
       </div>
@@ -502,7 +502,7 @@ function StepAllSet({ onComplete }) {
       <div>
         <h2 className="text-2xl font-bold text-fg-primary mb-2">You're all set!</h2>
         <p className="text-sm text-fg-secondary leading-relaxed max-w-sm mx-auto">
-          JobAutomate is configured and ready to help you land your next role.
+          CareerKit is configured and ready to help you land your next role.
         </p>
       </div>
 

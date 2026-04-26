@@ -6,13 +6,13 @@ PROFILE = {
     "last_name": "Kukreti",
     "email": "vineetkukreti34@gmail.com",
     "phone": "+91-7983207219",
-    "resume_path": "assets/resume.pdf",
+    "resume_path": "assets/resumes/default/vineet_kukreti_resume.pdf",
     "location": "India",
     "experience_years": 2,
     "current_title": "AI Engineer",
-    "linkedin": "https://linkedin.com/in/vineetkukretii",
-    "github": "https://github.com/vineetkukreti34",
-    "website": "https://github.com/vineetkukreti34",
+    "linkedin": "https://linkedin.com/in/vineetkukreti",
+    "github": "https://github.com/vineetkukreti",
+    "website": "https://github.com/vineetkukreti",
     "notice_period_days": 30,
     "desired_salary": 1200000,
     "current_salary": 800000,
@@ -241,8 +241,10 @@ JOB_TYPE = "F"  # Full-time
 
 # ─── Smart Query Builder ─────────────────────────────────────────────────────
 
+MAX_QUERIES = 150  # Cap total queries to avoid rate-limiting and wasted scrapes
+
 def build_smart_queries() -> list[str]:
-    """Build ranked, deduplicated query list. Shuffled each run for variety."""
+    """Build ranked, deduplicated query list. Capped at MAX_QUERIES, shuffled each run."""
     tier1, tier2, tier3, tier4 = [], [], [], []
 
     for role in ROLE_STEMS:
@@ -272,6 +274,8 @@ def build_smart_queries() -> list[str]:
         if key not in seen:
             seen.add(key)
             result.append(q)
+        if len(result) >= MAX_QUERIES:
+            break
 
     return result
 
@@ -283,11 +287,13 @@ def get_profile_context() -> str:
     skills = ", ".join(RESUME_SKILLS.keys())
     return (
         f"Name: {PROFILE['name']}\n"
-        f"Experience: {PROFILE['experience_years']} years as {PROFILE['current_title']}\n"
-        f"Core Stack: Python, FastAPI, Neo4j, LLMs (OpenAI, Claude, Cohere), Docker, knowledge graphs\n"
-        f"Domain Expertise: Healthcare AI, oncology, dermatopathology, clinical NLP, pathology, EHR/FHIR/HIPAA\n"
+        f"Experience: {PROFILE['experience_years']} years as {PROFILE['current_title']} at Southguild Technologies\n"
+        f"Core Stack: Python, FastAPI, Neo4j, LLMs (Claude, OpenAI, Cohere), Docker, knowledge graphs\n"
+        f"Domain Expertise: Healthcare AI, oncology, dermatopathology, NLP-to-Cypher, biomedical ETL\n"
+        f"Key Achievement: PathAssist system — 98.8% accuracy, 5x faster clinical insight retrieval\n"
+        f"Publications: 2 IEEE papers, 3 patents in AI/ML\n"
         f"Technical Skills: {skills}\n"
-        f"Education: {PROFILE['education_level']}\n"
+        f"Education: B.Tech (Hons.) CS Engineering, 8.5 CGPA, ML & AI specialization\n"
         f"Location: {PROFILE['location']} (willing to relocate)\n"
         f"LinkedIn: {PROFILE['linkedin']}\n"
         f"GitHub: {PROFILE['github']}\n"

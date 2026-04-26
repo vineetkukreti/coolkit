@@ -19,9 +19,15 @@ import {
   Wifi,
   WifiOff,
   Upload,
+  Plug,
+  SlidersHorizontal,
+  Wrench,
+  Download,
+  Info,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useToast } from '../components/Toast'
+import PageTabs from '../components/PageTabs'
 
 /* ─── tiny helpers ─── */
 
@@ -190,93 +196,153 @@ function BrowserStatusCard({ toast }) {
   )
 }
 
-/* ─── Resume Upload Card ─── */
+/* ─── Resume Variants Card ─── */
 
-function ResumeCard({ toast, resumeFileName: initialName, onUploaded }) {
-  const [resumeInfo, setResumeInfo] = useState({ exists: !!initialName, filename: initialName, size_kb: 0 })
-  const [uploading, setUploading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
+function ResumeVariantsCard({ toast }) {
+  const [variants, setVariants] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(null) // variant name being uploaded
+
+  // Test selection state
+  const [testText, setTestText] = useState('')
+  const [testResult, setTestResult] = useState(null)
+  const [testing, setTesting] = useState(false)
 
   useEffect(() => {
-    api.getResumeStatus().then(setResumeInfo).catch(() => {})
+    loadVariants()
   }, [])
 
-  async function handleFile(file) {
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
+  async function loadVariants() {
+    try {
+      const data = await api.getResumeVariants()
+      setVariants(data.variants || [])
+    } catch {
+      // silent
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleUpload(variantName, file) {
+    if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
       toast({ title: 'Invalid file', description: 'Only PDF files are allowed.', type: 'error' })
       return
     }
-    setUploading(true)
+    setUploading(variantName)
     try {
-      const res = await api.uploadResume(file)
-      setResumeInfo({ exists: true, filename: res.filename, path: res.path, size_kb: Math.round(file.size / 1024) })
-      onUploaded?.(res.filename, res.path)
-      toast({ title: 'Resume uploaded', description: res.message, type: 'success' })
+      const res = await api.uploadVariantResume(variantName, file)
+      toast({ title: 'Resume uploaded', description: `${res.filename} set for "${variantName}" (${res.size_kb} KB)`, type: 'success' })
+      loadVariants()
     } catch (e) {
       toast({ title: 'Upload failed', description: e.message, type: 'error' })
     } finally {
-      setUploading(false)
+      setUploading(null)
     }
   }
 
-  function handleInputChange(e) {
-    handleFile(e.target.files?.[0])
-    e.target.value = ''
+  async function testSelection() {
+    if (!testText.trim()) return
+    setTesting(true)
+    try {
+      const res = await api.testResumeSelection({ role: testText, content: testText })
+      setTestResult(res)
+    } catch (e) {
+      toast({ title: 'Test failed', description: e.message, type: 'error' })
+    } finally {
+      setTesting(false)
+    }
   }
 
-  function handleDrop(e) {
-    e.preventDefault()
-    setDragOver(false)
-    handleFile(e.dataTransfer.files?.[0])
+  const variantColors = {
+    'healthcare-ai': 'text-emerald-400',
+    'genai-platform': 'text-violet-400',
+    'data-engineering': 'text-blue-400',
+    'default': 'text-fg-muted',
   }
 
   return (
-    <Card title="Resume" icon={FileText}>
-      {resumeInfo.exists ? (
-        <>
-          <div className="flex items-center gap-4 mb-3">
-            <div className="w-11 h-11 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center flex-shrink-0">
-              <FileText size={20} className="text-accent" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-fg-primary text-sm font-medium truncate">{resumeInfo.filename}</p>
-              <p className="text-fg-muted text-xs mt-0.5">
-                PDF Document{resumeInfo.size_kb ? ` — ${resumeInfo.size_kb} KB` : ''}
-              </p>
-            </div>
-            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-success-bg border border-success/30 text-success text-xs font-medium flex-shrink-0">
-              <CheckCircle2 size={11} />
-              Set
-            </div>
-          </div>
-          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-fg-secondary text-xs cursor-pointer hover:text-fg-primary hover:border-fg-muted transition-colors">
-            <Upload size={12} />
-            Replace Resume
-            <input type="file" accept=".pdf" onChange={handleInputChange} className="hidden" />
-          </label>
-        </>
+    <Card title="Resume Variants" icon={FileText} badge={
+      <span className="text-fg-muted text-xs">{variants.filter(v => v.exists).length}/{variants.length} uploaded</span>
+    }>
+      {loading ? (
+        <div className="flex items-center gap-2 py-4 text-fg-muted">
+          <Loader2 size={15} className="animate-spin text-accent" />
+          <span className="text-sm">Loading variants...</span>
+        </div>
       ) : (
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${dragOver ? 'border-accent bg-accent-bg/30' : 'border-border'}`}
-        >
-          <div className="w-12 h-12 rounded-full bg-bg-tertiary border border-border flex items-center justify-center mx-auto mb-3">
-            {uploading ? <Loader2 size={20} className="animate-spin text-accent" /> : <Upload size={20} className="text-fg-muted" />}
+        <div className="space-y-3">
+          {variants.map((v) => (
+            <div key={v.name} className="flex items-center gap-3 p-3 rounded-xl bg-bg-tertiary border border-border">
+              <div className="w-9 h-9 rounded-lg bg-bg-primary border border-border flex items-center justify-center flex-shrink-0">
+                <FileText size={16} className={variantColors[v.name] || 'text-fg-muted'} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-fg-primary text-sm font-medium">{v.name}</p>
+                <p className="text-fg-muted text-xs mt-0.5 truncate">{v.description}</p>
+                {v.keywords.length > 0 && (
+                  <p className="text-fg-muted text-xs mt-1 opacity-60 truncate">
+                    {v.keywords.slice(0, 5).join(', ')}{v.keywords.length > 5 ? ` +${v.keywords.length - 5} more` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {v.exists ? (
+                  <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-success-bg border border-success/30 text-success text-xs font-medium">
+                    <CheckCircle2 size={11} />
+                    {v.size_kb} KB
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-danger-bg border border-danger/30 text-danger text-xs font-medium">
+                    <AlertCircle size={11} />
+                    Missing
+                  </span>
+                )}
+                <label className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border text-fg-secondary text-xs cursor-pointer hover:text-fg-primary hover:border-fg-muted transition-colors">
+                  {uploading === v.name ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+                  {v.exists ? 'Replace' : 'Upload'}
+                  <input type="file" accept=".pdf" onChange={(e) => { handleUpload(v.name, e.target.files?.[0]); e.target.value = '' }} className="hidden" />
+                </label>
+              </div>
+            </div>
+          ))}
+
+          {/* Test Selection */}
+          <div className="border-t border-border pt-3 mt-3">
+            <p className="text-fg-muted text-xs font-medium uppercase tracking-wider mb-2">Test Selection</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={testText}
+                onChange={(e) => setTestText(e.target.value)}
+                placeholder="Paste job title or description..."
+                className="flex-1 bg-bg-tertiary border border-border rounded-lg text-fg-primary text-xs px-3 py-2 focus:outline-none focus:border-accent placeholder:text-fg-muted"
+                onKeyDown={(e) => e.key === 'Enter' && testSelection()}
+              />
+              <button
+                onClick={testSelection}
+                disabled={testing || !testText.trim()}
+                className="flex items-center gap-1 px-3 py-2 bg-accent hover:bg-accent/90 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 flex-shrink-0"
+              >
+                {testing ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                Test
+              </button>
+            </div>
+            {testResult && (
+              <div className="mt-2 p-2.5 rounded-lg bg-bg-primary border border-border">
+                <p className="text-fg-primary text-xs font-medium mb-1.5">
+                  Selected: <span className={variantColors[testResult.selected] || ''}>{testResult.selected}</span>
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {Object.entries(testResult.scores || {}).map(([name, info]) => (
+                    <span key={name} className="text-fg-muted text-xs">
+                      {name}: <span className={`font-mono ${info.score >= 2 ? 'text-success' : 'text-fg-muted'}`}>{info.score.toFixed(1)}</span>
+                      <span className="opacity-50"> ({info.hits} hits)</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <p className="text-fg-primary text-sm font-medium mb-1">
-            {uploading ? 'Uploading...' : 'Upload your resume'}
-          </p>
-          <p className="text-fg-muted text-xs mb-3">
-            Drag &amp; drop a PDF here, or click to browse
-          </p>
-          <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-white text-xs font-medium cursor-pointer hover:bg-accent/90 transition-colors">
-            <Upload size={12} />
-            Choose PDF
-            <input type="file" accept=".pdf" onChange={handleInputChange} className="hidden" disabled={uploading} />
-          </label>
         </div>
       )}
     </Card>
@@ -367,6 +433,19 @@ export default function Settings() {
   }
 
   async function saveSMTP() {
+    // Validate
+    if (!smtp.smtp_host?.trim()) {
+      toast({ title: 'Missing SMTP host', type: 'error' })
+      return
+    }
+    if (!smtp.smtp_port || smtp.smtp_port < 1 || smtp.smtp_port > 65535) {
+      toast({ title: 'Invalid port number', type: 'error' })
+      return
+    }
+    if (smtp.from_email && !smtp.from_email.includes('@')) {
+      toast({ title: 'Invalid from email', type: 'error' })
+      return
+    }
     setSmtpSaving(true)
     try {
       await api.saveSMTP(smtp)
@@ -431,14 +510,26 @@ export default function Settings() {
 
 
   const initials = profile.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() || 'VK'
-  const resumeFileName = profile.resume_path ? profile.resume_path.split('/').pop() : null
+
+  const SETTINGS_TABS = [
+    { key: 'profile', label: 'Profile', icon: User },
+    { key: 'integrations', label: 'Integrations', icon: Plug },
+    { key: 'search', label: 'Search Config', icon: SlidersHorizontal },
+    { key: 'advanced', label: 'Advanced', icon: Wrench },
+  ]
+
+  const [activeTab, setActiveTab] = useState('profile')
 
   return (
     <div className="min-h-screen bg-bg-primary text-fg-primary px-6 py-8 font-sans">
       {/* Page header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-2xl font-semibold text-fg-primary">Settings</h1>
-        <p className="text-fg-muted text-sm mt-1">Configure everything from here — profile, email, API keys, and protection limits</p>
+        <p className="text-fg-muted text-sm mt-1">Configure your profile, integrations, search preferences & more</p>
+      </div>
+
+      <div className="mb-6">
+        <PageTabs tabs={SETTINGS_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
 
       {loading ? (
@@ -447,12 +538,11 @@ export default function Settings() {
           <span className="text-sm">Loading settings...</span>
         </div>
       ) : (
-        <div className="space-y-6 max-w-5xl">
+        <div className="max-w-5xl">
 
-          {/* ── Row 1: Profile + (Resume + Gemini + LinkedIn Connection) ── */}
-          <div className="flex gap-6 items-start">
-            {/* Left: Profile */}
-            <div className="flex-1 min-w-0">
+          {/* ── Tab 1: Profile ── */}
+          {activeTab === 'profile' && (
+            <div className="space-y-6">
               <Card
                 title="Profile Information"
                 icon={User}
@@ -467,7 +557,6 @@ export default function Settings() {
                   </button>
                 }
               >
-                {/* Avatar + name */}
                 <div className="flex items-center gap-4 mb-5">
                   <div className="w-14 h-14 rounded-full bg-accent-bg border border-accent/30 flex items-center justify-center flex-shrink-0">
                     <span className="text-accent font-semibold text-lg font-mono">{initials}</span>
@@ -483,9 +572,7 @@ export default function Settings() {
                     </div>
                   </div>
                 </div>
-
                 <div className="border-t border-border mb-5" />
-
                 <div className="grid grid-cols-2 gap-x-5 gap-y-4">
                   <div>
                     <Label>Email</Label>
@@ -519,78 +606,17 @@ export default function Settings() {
                   </div>
                 </div>
               </Card>
+
+              <ResumeVariantsCard toast={toast} />
             </div>
+          )}
 
-            {/* Right column: LinkedIn Connection + Resume + Gemini */}
-            <div className="w-[380px] flex-shrink-0 flex flex-col gap-5">
-
-              {/* LinkedIn Connection */}
-              <BrowserStatusCard toast={toast} />
-
-              {/* Resume */}
-              <ResumeCard toast={toast} resumeFileName={resumeFileName} onUploaded={(name, path) => setProfile(prev => ({ ...prev, resume_path: path }))} />
-
-              {/* Gemini API Key */}
+          {/* ── Tab 2: Integrations ── */}
+          {activeTab === 'integrations' && (
+            <div className="space-y-6">
+              {/* SMTP */}
               <Card
-                title="Gemini API Key"
-                icon={Sparkles}
-                badge={
-                  geminiSet ? (
-                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-success-bg text-success text-xs font-medium border border-success/30">
-                      <CheckCircle2 size={11} />
-                      Active
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-danger-bg text-danger text-xs font-medium border border-danger/30">
-                      <AlertCircle size={11} />
-                      Not Set
-                    </span>
-                  )
-                }
-              >
-                {geminiSet && (
-                  <p className="text-fg-muted text-xs mb-3 font-mono">{geminiPreview}</p>
-                )}
-                <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <input
-                      type={showGeminiKey ? 'text' : 'password'}
-                      value={geminiKey}
-                      onChange={(e) => setGeminiKey(e.target.value)}
-                      placeholder={geminiSet ? 'Enter new key to replace...' : 'AIzaSy...'}
-                      className="w-full bg-bg-tertiary border border-border rounded-lg text-fg-primary text-sm font-mono px-3.5 py-2.5 pr-10 focus:outline-none focus:border-accent placeholder:text-fg-muted"
-                    />
-                    <button
-                      onClick={() => setShowGeminiKey(!showGeminiKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-primary"
-                    >
-                      {showGeminiKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                  <button
-                    onClick={saveGemini}
-                    disabled={geminiSaving || !geminiKey.trim()}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-accent hover:bg-accent/90 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 flex-shrink-0"
-                  >
-                    {geminiSaving ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
-                    Save
-                  </button>
-                </div>
-                <p className="text-fg-muted text-xs mt-2">
-                  Used for AI email generation. Get a key at{' '}
-                  <span className="text-accent">aistudio.google.com</span>
-                </p>
-              </Card>
-            </div>
-          </div>
-
-          {/* ── Row 2: Email Server + Account Protection ── */}
-          <div className="flex gap-6 items-start">
-
-            {/* Email Server Settings */}
-            <div className="flex-1 min-w-0">
-              <Card
-                title="Email Server Settings"
+                title="Email Server (SMTP)"
                 icon={Server}
                 badge={
                   smtpConfigured ? (
@@ -610,11 +636,10 @@ export default function Settings() {
                     <button
                       onClick={testConnection}
                       disabled={testingConnection}
-                      title={smtpConfigured ? 'Test email server connection' : 'Save settings first'}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-tertiary border border-border text-fg-secondary text-xs font-medium rounded-lg hover:text-fg-primary hover:border-accent/50 transition-colors disabled:opacity-40"
                     >
                       {testingConnection ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                      Test Connection
+                      Test
                     </button>
                     <button
                       onClick={saveSMTP}
@@ -673,7 +698,6 @@ export default function Settings() {
                     <Input {...sf('from_name')} placeholder="Vineet Kukreti" />
                   </div>
                 </div>
-
                 <div className="mt-4 p-3 rounded-lg bg-bg-tertiary border border-border">
                   <p className="text-fg-muted text-xs leading-relaxed">
                     <strong className="text-fg-secondary">Gmail setup:</strong> Enable 2-Step Verification, then create an App Password at{' '}
@@ -682,10 +706,154 @@ export default function Settings() {
                   </p>
                 </div>
               </Card>
+
+              {/* Gemini API */}
+              <Card
+                title="Gemini API Key"
+                icon={Sparkles}
+                badge={
+                  geminiSet ? (
+                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-success-bg text-success text-xs font-medium border border-success/30">
+                      <CheckCircle2 size={11} />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-danger-bg text-danger text-xs font-medium border border-danger/30">
+                      <AlertCircle size={11} />
+                      Not Set
+                    </span>
+                  )
+                }
+              >
+                {geminiSet && (
+                  <p className="text-fg-muted text-xs mb-3 font-mono">{geminiPreview}</p>
+                )}
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type={showGeminiKey ? 'text' : 'password'}
+                      value={geminiKey}
+                      onChange={(e) => setGeminiKey(e.target.value)}
+                      placeholder={geminiSet ? 'Enter new key to replace...' : 'AIzaSy...'}
+                      className="w-full bg-bg-tertiary border border-border rounded-lg text-fg-primary text-sm font-mono px-3.5 py-2.5 pr-10 focus:outline-none focus:border-accent placeholder:text-fg-muted"
+                    />
+                    <button
+                      onClick={() => setShowGeminiKey(!showGeminiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-primary"
+                    >
+                      {showGeminiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={saveGemini}
+                    disabled={geminiSaving || !geminiKey.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-accent hover:bg-accent/90 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 flex-shrink-0"
+                  >
+                    {geminiSaving ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
+                    Save
+                  </button>
+                </div>
+                <p className="text-fg-muted text-xs mt-2">
+                  Used for AI email generation. Get a key at{' '}
+                  <span className="text-accent">aistudio.google.com</span>
+                </p>
+              </Card>
+
+              {/* LinkedIn Browser */}
+              <BrowserStatusCard toast={toast} />
             </div>
+          )}
 
+          {/* ── Tab 3: Search Config ── */}
+          {activeTab === 'search' && (
+            <div className="space-y-6">
+              <Card title="Search Configuration" icon={SlidersHorizontal}>
+                <div className="space-y-5">
+                  <div>
+                    <Label>Target Roles</Label>
+                    <p className="text-fg-muted text-xs mb-2">Roles you're targeting — used for smart filtering & scoring</p>
+                    <div className="flex flex-wrap gap-2">
+                      {['AI Engineer', 'ML Engineer', 'GenAI Engineer', 'LLM Engineer', 'Agentic AI Engineer'].map(r => (
+                        <span key={r} className="px-3 py-1.5 bg-accent-bg text-accent text-xs font-medium rounded-lg border border-accent/20">{r}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="border-t border-border" />
+                  <div>
+                    <Label>Domain Keywords</Label>
+                    <p className="text-fg-muted text-xs mb-2">Healthcare & domain-specific keywords for relevance scoring</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['healthcare', 'clinical', 'medical', 'biotech', 'pharma', 'genomics', 'oncology', 'ehr', 'fhir', 'hipaa'].map(k => (
+                        <span key={k} className="px-2 py-1 bg-bg-tertiary text-fg-secondary text-xs rounded-md border border-border">{k}</span>
+                      ))}
+                      <span className="px-2 py-1 text-fg-muted text-xs">+15 more</span>
+                    </div>
+                  </div>
+                  <div className="border-t border-border" />
+                  <div className="grid grid-cols-2 gap-5">
+                    <div>
+                      <Label>Experience Range</Label>
+                      <p className="text-fg-muted text-xs">0–5 years (current: 2 yrs)</p>
+                    </div>
+                    <div>
+                      <Label>Location Preferences</Label>
+                      <p className="text-fg-muted text-xs">India, Remote, Japan, Europe, UAE, US, Singapore</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 p-3 rounded-lg bg-bg-tertiary border border-border">
+                  <p className="text-fg-muted text-xs leading-relaxed flex items-start gap-2">
+                    <Info size={14} className="text-accent flex-shrink-0 mt-0.5" />
+                    These settings are configured in <span className="font-mono text-accent">backend/config.py</span>. Edit that file to update target roles, keywords, and search parameters.
+                  </p>
+                </div>
+              </Card>
+            </div>
+          )}
 
-          </div>
+          {/* ── Tab 4: Advanced ── */}
+          {activeTab === 'advanced' && (
+            <div className="space-y-6">
+              <Card title="Data Export" icon={Download}>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const data = await api.getApplications()
+                        const apps = data?.applications || []
+                        const csv = ['Status,Title,Company,Location,Platform,Date,URL']
+                        apps.forEach(a => csv.push(`${a.status},"${a.job_title || ''}","${a.company || ''}","${a.location || ''}",${a.platform || ''},${a.applied_at || ''},"${a.job_url || ''}"`))
+                        const blob = new Blob([csv.join('\n')], { type: 'text/csv' })
+                        const url = URL.createObjectURL(blob)
+                        const el = document.createElement('a')
+                        el.href = url; el.download = 'applications.csv'; el.click()
+                        URL.revokeObjectURL(url)
+                        toast({ title: 'Exported', description: `${apps.length} applications exported to CSV`, type: 'success' })
+                      } catch (e) {
+                        toast({ title: 'Export failed', description: e.message, type: 'error' })
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-bg-tertiary border border-border text-fg-secondary text-sm font-medium rounded-lg hover:text-fg-primary hover:border-accent/50 transition-colors"
+                  >
+                    <Download size={14} />
+                    Export Applications (CSV)
+                  </button>
+                </div>
+              </Card>
+
+              <Card title="About CareerKit" icon={Info}>
+                <div className="space-y-2 text-sm">
+                  <p className="text-fg-secondary">Full-stack job hunting automation platform</p>
+                  <p className="text-fg-muted text-xs">100+ job sources &bull; AI-powered email generation &bull; Smart scoring &bull; Auto-apply</p>
+                  <div className="flex gap-4 mt-3 text-xs text-fg-muted">
+                    <span>Stack: React + FastAPI + SQLite</span>
+                    <span>LLM: Gemini + Ollama</span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
+
         </div>
       )}
     </div>

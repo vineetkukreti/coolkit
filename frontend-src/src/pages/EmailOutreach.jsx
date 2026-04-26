@@ -18,9 +18,11 @@ import {
   ChevronUp,
   Square,
   Search,
+  Users,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
+import FilterBar, { useFilters, applyFilters, dateRangeMatch } from "../components/FilterBar";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -64,6 +66,26 @@ function RelevanceDot({ value }) {
   if (v === "high") return <span className="w-2 h-2 rounded-full bg-accent inline-block" title="High" />;
   if (v === "medium") return <span className="w-2 h-2 rounded-full bg-warning inline-block" title="Medium" />;
   return <span className="w-2 h-2 rounded-full bg-fg-muted/30 inline-block" title="Low" />;
+}
+
+function VariantBadge({ variant }) {
+  if (!variant) return null
+  const isA = variant === 'A'
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${isA ? 'bg-accent-bg text-accent border border-accent/20' : 'bg-info-bg text-info border border-info/20'}`}>
+      {variant}
+    </span>
+  )
+}
+
+function ConnectionBadge({ type }) {
+  if (!type || type === 'cold') return null
+  const isWarm = type === 'warm'
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${isWarm ? 'bg-success-bg text-success border border-success/20' : 'bg-warning-bg text-warning border border-warning/20'}`}>
+      {isWarm ? 'Warm' : 'Referral'}
+    </span>
+  )
 }
 
 function ConfirmModal({ title, description, confirmLabel = "Confirm", cancelLabel = "Cancel", onConfirm, onCancel, danger = false }) {
@@ -120,6 +142,8 @@ function EmailRow({ post, onGenerate, onSend, onSaveDraft, attachResume, generat
             {post.source_type === "startup_lead" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success font-medium">Company</span>
             )}
+            <VariantBadge variant={post.variant} />
+            <ConnectionBadge type={post.outreach_type} />
           </div>
           <p className="text-xs text-fg-muted mt-0.5 truncate">{contentPreview}...</p>
         </div>
@@ -130,6 +154,13 @@ function EmailRow({ post, onGenerate, onSend, onSaveDraft, attachResume, generat
 
       {expanded && (
         <div className="px-5 pb-4 pt-1 bg-bg-tertiary/20">
+          {post.outreach_type && post.outreach_type !== 'cold' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-info-bg/50 border border-info/10 text-info text-xs mb-3">
+              <Users size={12} />
+              {post.outreach_type === 'warm' ? 'Warm connection detected at this company' : 'Referral connection available'}
+            </div>
+          )}
+
           <details className="mb-3">
             <summary className="text-xs text-fg-muted cursor-pointer hover:text-fg-secondary">View original post</summary>
             <p className="mt-2 text-xs text-fg-secondary whitespace-pre-wrap leading-relaxed bg-bg-primary rounded-lg p-3 max-h-40 overflow-y-auto border border-border">{post.content || "No content"}</p>
@@ -217,6 +248,8 @@ function SentEmailRow({ item }) {
             {item.company && (
               <span className="text-xs text-fg-muted">@ {item.company}</span>
             )}
+            <VariantBadge variant={item.variant} />
+            <ConnectionBadge type={item.outreach_type} />
           </div>
           <p className="text-xs text-fg-muted truncate mt-0.5">{item.subject}</p>
           <p className="text-xs text-info font-mono truncate mt-0.5">{item.to_email}</p>
@@ -228,6 +261,12 @@ function SentEmailRow({ item }) {
       {/* Expanded — full width detail view */}
       {expanded && (
         <div className="px-5 pb-4 space-y-3">
+          {item.outreach_type && item.outreach_type !== 'cold' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-info-bg/50 border border-info/10 text-info text-xs mb-3">
+              <Users size={12} />
+              {item.outreach_type === 'warm' ? 'Warm connection detected at this company' : 'Referral connection available'}
+            </div>
+          )}
           {/* Meta row */}
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {item.role && (
@@ -339,6 +378,33 @@ export default function EmailOutreach() {
   // Tabs & search
   const [activeTab, setActiveTab] = useState("queue");
   const [search, setSearch] = useState("");
+
+  // Queue tab filters
+  const queueFilterDefs = [
+    { key: 'source_type', type: 'select', label: 'Source', options: [
+      { label: 'All Sources', value: '' }, { label: 'Posts', value: 'post' }, { label: 'Startup Leads', value: 'startup_lead' },
+    ], match: (item, v) => item.source_type === v },
+    { key: 'email_status', type: 'select', label: 'Status', options: [
+      { label: 'All Status', value: '' }, { label: 'Not Generated', value: 'pending' }, { label: 'Draft', value: 'draft' }, { label: 'Sent', value: 'sent' }, { label: 'Failed', value: 'failed' },
+    ], match: (item, v) => (v === 'pending' ? (!item.email_status || item.email_status === 'pending') : item.email_status === v) },
+    { key: 'domain_relevance', type: 'select', label: 'Relevance', options: [
+      { label: 'All Relevance', value: '' }, { label: 'High', value: 'High' }, { label: 'Medium', value: 'Medium' }, { label: 'Low', value: 'Low' },
+    ], match: (item, v) => item.domain_relevance === v },
+    { key: 'has_email', type: 'toggle', label: 'Has Email', icon: Mail, match: (item) => item.email && item.email.trim() !== '' },
+  ];
+  const queueFilters = useFilters(queueFilterDefs);
+
+  // History tab filters
+  const historyFilterDefs = [
+    { key: 'status', type: 'select', label: 'Status', options: [
+      { label: 'All Status', value: '' }, { label: 'Sent', value: 'sent' }, { label: 'Failed', value: 'failed' }, { label: 'Replied', value: 'replied' }, { label: 'Bounced', value: 'bounced' },
+    ], match: (item, v) => item.status === v },
+    { key: 'outreach_type', type: 'select', label: 'Type', options: [
+      { label: 'All Types', value: '' }, { label: 'Cold', value: 'cold' }, { label: 'Warm', value: 'warm' }, { label: 'Referral', value: 'referral' },
+    ], match: (item, v) => item.outreach_type === v },
+    { key: 'date_range', type: 'dateRange', match: dateRangeMatch('sent_at') },
+  ];
+  const historyFilters = useFilters(historyFilterDefs);
 
   // History
   const [history, setHistory] = useState([]);
@@ -459,20 +525,23 @@ export default function EmailOutreach() {
     } catch { /* ignore */ }
   }
 
-  // Search filter — full text across all fields
+  // Search + structured filters
   const q = search.trim().toLowerCase();
-  const filteredPosts = q
+  let filteredPosts = q
     ? posts.filter((p) =>
         [p.author_name, p.company, p.role, p.email, p.content, p.draft_subject, p.draft_body, p.domain_relevance, p.links]
           .filter(Boolean).join(" ").toLowerCase().includes(q)
       )
     : posts;
-  const filteredHistory = q
+  filteredPosts = applyFilters(filteredPosts, queueFilters.values, queueFilterDefs);
+
+  let filteredHistory = q
     ? history.filter((h) =>
         [h.to_name, h.to_email, h.company, h.role, h.subject, h.body, h.post_content, h.location, h.post_links, h.author_headline]
           .filter(Boolean).join(" ").toLowerCase().includes(q)
       )
     : history;
+  filteredHistory = applyFilters(filteredHistory, historyFilters.values, historyFilterDefs);
 
   // Stats
   const totalPosts = posts.length;
@@ -567,6 +636,31 @@ export default function EmailOutreach() {
               className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-primary">
               <X size={14} />
             </button>
+          )}
+        </div>
+
+        {/* Filters */}
+        <div className="mb-3">
+          {activeTab === "queue" ? (
+            <FilterBar
+              filters={queueFilterDefs}
+              values={queueFilters.values}
+              onChange={queueFilters.setFilter}
+              onClear={queueFilters.clearFilters}
+              isFiltered={queueFilters.isFiltered}
+              resultCount={filteredPosts.length}
+              totalCount={posts.length}
+            />
+          ) : (
+            <FilterBar
+              filters={historyFilterDefs}
+              values={historyFilters.values}
+              onChange={historyFilters.setFilter}
+              onClear={historyFilters.clearFilters}
+              isFiltered={historyFilters.isFiltered}
+              resultCount={filteredHistory.length}
+              totalCount={history.length}
+            />
           )}
         </div>
 

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   BarChart3, RefreshCw, Download, CheckCircle, Clock, AlertCircle,
   Mail, MessageSquare, Award, XCircle, Eye, AlertTriangle, Send,
+  Trophy, FlaskConical, Loader2, Inbox,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -101,8 +102,35 @@ function FollowUpTab() {
   const urgencyOrder = { OVERDUE: 0, URGENT: 1, WAITING: 2, COLD: 3 };
   const sorted = [...entries].sort((a, b) => (urgencyOrder[a.urgency] ?? 4) - (urgencyOrder[b.urgency] ?? 4));
 
+  const overdueCount = summary.overdue || 0;
+  const urgentCount = summary.urgent || 0;
+
   return (
     <>
+      {/* Auto Follow-up Controls */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-fg-primary text-sm font-medium">Follow-up Queue</p>
+          <p className="text-fg-muted text-xs">{overdueCount} overdue, {urgentCount} urgent</p>
+        </div>
+        <button
+          onClick={async () => {
+            try {
+              await api.autoFollowup();
+              toast({ title: "Auto follow-up started", description: "Sending overdue follow-ups...", type: "success" });
+              loadFollowups();
+            } catch (e) {
+              toast({ title: "Failed", description: e.message, type: "error" });
+            }
+          }}
+          disabled={overdueCount === 0}
+          className="flex items-center gap-1.5 px-4 py-2 bg-accent hover:bg-accent/90 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40"
+        >
+          <Send size={13} />
+          Send All Overdue
+        </button>
+      </div>
+
       {/* Summary Stats */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
@@ -184,6 +212,58 @@ function FollowUpTab() {
   );
 }
 
+function ABTestingTab() {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getAbStats().then((d) => { setStats(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex items-center gap-2 py-12 justify-center text-fg-muted"><Loader2 size={16} className="animate-spin" /> Loading A/B stats...</div>;
+  if (!stats?.variants || Object.keys(stats.variants).length === 0) return <div className="py-12 text-center text-fg-muted text-sm">No A/B test data yet. Generate emails to start tracking variants.</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        {Object.entries(stats.variants).map(([key, v]) => (
+          <div key={key} className="bg-bg-secondary border border-border rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${key === 'A' ? 'bg-accent-bg text-accent border border-accent/20' : 'bg-info-bg text-info border border-info/20'}`}>{key}</span>
+                <span className="text-fg-secondary text-sm font-medium">{v.strategy || (key === 'A' ? 'Proof-first' : 'Challenge-first')}</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-fg-muted text-xs uppercase tracking-wider">Sent</p>
+                <p className="text-2xl font-bold text-fg-primary font-mono mt-1">{v.total || 0}</p>
+              </div>
+              <div>
+                <p className="text-fg-muted text-xs uppercase tracking-wider">Replies</p>
+                <p className="text-2xl font-bold text-success font-mono mt-1">{v.replies || 0}</p>
+              </div>
+              <div>
+                <p className="text-fg-muted text-xs uppercase tracking-wider">Rate</p>
+                <p className="text-2xl font-bold text-accent font-mono mt-1">{v.total > 0 ? ((v.replies / v.total) * 100).toFixed(1) : '0'}%</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {stats.winner?.has_winner && (
+        <div className="bg-success-bg border border-success/20 rounded-xl p-4 flex items-center gap-3">
+          <Trophy size={18} className="text-success" />
+          <div>
+            <p className="text-fg-primary text-sm font-semibold">Winner: Variant {stats.winner.winner}</p>
+            <p className="text-fg-muted text-xs">{stats.winner.margin}% better performance with {stats.winner.confidence} confidence</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function EmailAnalytics() {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -191,9 +271,12 @@ export default function EmailAnalytics() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("analytics");
+  const [imapStatus, setImapStatus] = useState(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     load();
+    api.getImapStatus().then(setImapStatus).catch(() => {});
   }, []);
 
   async function load() {
@@ -235,10 +318,39 @@ export default function EmailAnalytics() {
               <p className="text-sm text-fg-secondary mt-0.5">Track email performance, replies, and follow-up conversions.</p>
             </div>
           </div>
-          <button onClick={load} disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary transition-colors">
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                setChecking(true);
+                try {
+                  const res = await api.checkReplies();
+                  setImapStatus(prev => ({ ...prev, last_checked: res.last_checked }));
+                  if (res.replies_found > 0) {
+                    toast({ title: `${res.replies_found} new replies detected!`, type: "success" });
+                    load();
+                  } else {
+                    toast({ title: "No new replies found", type: "info" });
+                  }
+                } catch (e) {
+                  toast({ title: "Reply check failed", description: e.message, type: "error" });
+                } finally {
+                  setChecking(false);
+                }
+              }}
+              disabled={checking}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {checking ? <Loader2 size={14} className="animate-spin" /> : <Inbox size={14} />}
+              {checking ? "Checking..." : "Check Replies"}
+            </button>
+            {imapStatus?.last_checked && (
+              <span className="text-fg-muted text-xs">Last: {new Date(imapStatus.last_checked).toLocaleTimeString()}</span>
+            )}
+            <button onClick={load} disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary transition-colors">
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -246,6 +358,7 @@ export default function EmailAnalytics() {
           {[
             { key: "analytics", label: "Analytics", icon: BarChart3 },
             { key: "followups", label: "Follow-ups", icon: Clock },
+            { key: "ab", label: "A/B Testing", icon: FlaskConical },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -262,7 +375,9 @@ export default function EmailAnalytics() {
           ))}
         </div>
 
-        {activeTab === "followups" ? (
+        {activeTab === "ab" ? (
+          <ABTestingTab />
+        ) : activeTab === "followups" ? (
           <FollowUpTab />
         ) : (
         <>

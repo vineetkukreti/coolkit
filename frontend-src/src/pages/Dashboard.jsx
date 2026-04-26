@@ -78,11 +78,86 @@ function StatCard({ label, icon: Icon, value, sub }) {
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
+function EmailHealthCard({ emailStats }) {
+  if (!emailStats) return null
+  const { delivered, failed, replied, errors, recent_failures, worker_history } = emailStats
+  const total = (delivered || 0) + (failed || 0)
+  const deliveryPct = total > 0 ? ((delivered || 0) / total * 100).toFixed(0) : 0
+
+  return (
+    <div className="bg-bg-secondary border border-border rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-fg-primary">Email Health</h2>
+        <span className="text-xs text-fg-muted">{deliveryPct}% delivery rate</span>
+      </div>
+
+      {/* Delivery bar */}
+      <div className="w-full h-2.5 bg-bg-tertiary rounded-full overflow-hidden flex">
+        {delivered > 0 && <div className="h-full bg-success" style={{ width: `${(delivered / total) * 100}%` }} />}
+        {(replied || 0) > 0 && <div className="h-full bg-accent" style={{ width: `${(replied / total) * 100}%` }} />}
+        {failed > 0 && <div className="h-full bg-danger" style={{ width: `${(failed / total) * 100}%` }} />}
+      </div>
+      <div className="flex gap-4 text-xs">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-success" />Delivered {delivered || 0}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-accent" />Replied {replied || 0}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-danger" />Failed {failed || 0}</span>
+      </div>
+
+      {/* Error breakdown */}
+      {errors && Object.keys(errors).length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-fg-muted font-medium uppercase tracking-wider">Failure Types</p>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(errors).map(([type, count]) => (
+              <span key={type} className="px-2 py-0.5 rounded text-xs bg-danger-bg text-danger border border-danger/20">
+                {type.replace('_', ' ')}: {count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent failures */}
+      {recent_failures && recent_failures.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-fg-muted font-medium uppercase tracking-wider">Recent Failures</p>
+          <div className="space-y-1">
+            {recent_failures.slice(0, 3).map((f, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-fg-muted">
+                <span className="text-danger font-mono">{f.error_type || 'unknown'}</span>
+                <span className="truncate flex-1">{f.email}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Worker runs */}
+      {worker_history && worker_history.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-fg-muted font-medium uppercase tracking-wider">Worker Activity</p>
+          <div className="space-y-1">
+            {worker_history.slice(0, 3).map((w, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className="text-fg-muted font-mono">{w.type}</span>
+                <span className={w.status === 'completed' ? 'text-success' : w.status === 'failed' ? 'text-danger' : 'text-warning'}>{w.status}</span>
+                <span className="text-fg-muted">{w.succeeded}/{w.total}</span>
+                <span className="text-fg-muted ml-auto">{w.started_at ? new Date(w.started_at).toLocaleDateString() : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function OverviewTab({
   loading,
   appliedCount,
   skippedCount,
   emailCount,
+  emailStats,
   postsScraped,
   activity,
   browserOnline,
@@ -128,6 +203,7 @@ function OverviewTab({
             label="Emails Sent"
             icon={Mail}
             value={loading ? '—' : (emailCount ?? 0)}
+            sub={emailStats ? `${emailStats.replied || 0} replied · ${emailStats.failed || 0} failed` : null}
           />
           <StatCard
             label="Posts Scraped"
@@ -142,6 +218,9 @@ function OverviewTab({
           />
         </div>
       )}
+
+      {/* Email Health */}
+      {emailStats && <EmailHealthCard emailStats={emailStats} />}
 
       {/* Bottom Section */}
       <div className="flex gap-4 flex-col lg:flex-row">
@@ -769,13 +848,14 @@ export default function Dashboard() {
   const [allApplications, setAllApplications] = useState([])
   const [browserOnline, setBrowserOnline] = useState(false)
   const [stats, setStats] = useState(null)
+  const [emailStats, setEmailStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
 
     async function load() {
-      const [profileRes, statsRes, dbStatsRes, appsRes, emailHistRes, browserRes] =
+      const [profileRes, statsRes, dbStatsRes, appsRes, emailHistRes, browserRes, emailStatsRes] =
         await Promise.allSettled([
           api.getProfile(),
           api.getStats(),
@@ -783,6 +863,7 @@ export default function Dashboard() {
           api.getApplications(),
           api.getEmailHistory(),
           api.getBrowserStatus(),
+          api.getEmailStats(),
         ])
 
       if (cancelled) return
@@ -841,6 +922,11 @@ export default function Dashboard() {
         setBrowserOnline(browserRes.value?.running ?? false)
       }
 
+      // Email stats
+      if (emailStatsRes.status === 'fulfilled') {
+        setEmailStats(emailStatsRes.value)
+      }
+
       if (!cancelled) setLoading(false)
     }
 
@@ -866,10 +952,10 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-semibold text-fg-primary">
             {loading
-              ? 'Welcome to JobAutomate'
+              ? 'Welcome to CareerKit'
               : userName
                 ? `Welcome back, ${userName}`
-                : 'Welcome to JobAutomate'
+                : 'Welcome to CareerKit'
             }
           </h1>
           <p className="text-sm text-fg-muted mt-1">
@@ -916,6 +1002,7 @@ export default function Dashboard() {
           appliedCount={appliedCount}
           skippedCount={skippedCount}
           emailCount={emailCount}
+          emailStats={emailStats}
           postsScraped={postsScraped}
           activity={activity}
           browserOnline={browserOnline}

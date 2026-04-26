@@ -184,8 +184,10 @@ def test_custom_api_source(key):
         "remotive": ("https://remotive.com/api/remote-jobs?category=software-dev&limit=5", "jobs"),
         "workingnomads": ("https://www.workingnomads.com/api/exposed_jobs/", ""),
         "greenhouse": ("https://boards-api.greenhouse.io/v1/boards/anthropic/jobs", "jobs"),
-        "lever": ("https://api.lever.co/v0/postings/Netflix?mode=json", ""),
-        "ashby": ("https://api.ashbyhq.com/posting-api/job-board/anthropic", "jobs"),
+        "lever": ("https://api.lever.co/v0/postings/spotify?mode=json", ""),
+        "ashby": ("https://api.ashbyhq.com/posting-api/job-board/ramp", "jobs"),
+        "wwr_rss": ("https://weworkremotely.com/categories/remote-programming-jobs.rss", ""),
+        "hn": ("https://hn.algolia.com/api/v1/search?tags=job&hitsPerPage=5", "hits"),
     }
     if key in endpoints:
         url, path = endpoints[key]
@@ -203,7 +205,13 @@ def run_test(key, source_info):
     elif engine == "generic_api":
         config = GENERIC_API_SOURCES.get(key, {})
         # Build test URL
-        url = config.get("url", "").format(query="AI+Engineer")
+        if config.get("companies"):
+            # Company-based API — test first company
+            url_template = config.get("url_template", "")
+            company = config["companies"][0]
+            url = url_template.format(company=company, query="AI")
+        else:
+            url = config.get("url", "").format(query="AI+Engineer")
         status, msg = test_api_endpoint(key, url, config.get("jobs_path", ""))
     elif engine == "custom":
         status, msg = test_custom_api_source(key)

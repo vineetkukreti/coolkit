@@ -53,6 +53,12 @@ export const api = {
   getEmailHistory: () => request('/email/history'),
   getEmailConfig: () => request('/email/config-status'),
 
+  // Address quality report
+  getAddressQuality: () => request('/email/address-quality'),
+
+  // Manual email status update
+  updateEmailStatus: (outreachId, status) => request('/email/update-status', { method: 'POST', body: JSON.stringify({ outreach_id: outreachId, status }) }),
+
   // Scraper
   startScraper: (data) => request('/scraper/start', { method: 'POST', body: JSON.stringify(data) }),
   stopScraper: () => request('/scraper/stop', { method: 'POST' }),
@@ -94,6 +100,23 @@ export const api = {
   // Follow-up
   getFollowupStatus: () => request('/followup/status'),
   recordFollowup: (outreachId) => request('/followup/record', { method: 'POST', body: JSON.stringify({ outreach_id: outreachId }) }),
+  autoFollowup: () => request('/followup/auto-send', { method: 'POST' }),
+  previewFollowup: (outreachId) => request(`/followup/preview/${outreachId}`, { method: 'POST' }),
+  getFollowupWorkerStatus: () => request('/followup/worker-status'),
+  stopFollowupWorker: () => request('/followup/worker-stop', { method: 'POST' }),
+
+  // Email connections
+  getEmailConnections: (postId) => request(`/email/connections/${postId}`),
+
+  // Email Stats & Tracking
+  getEmailStats: () => request('/email/stats'),
+  classifyFailures: () => request('/email/classify-failures', { method: 'POST' }),
+
+  // IMAP Reply Detection
+  checkReplies: () => request('/email/check-replies', { method: 'POST' }),
+  startImapPolling: () => request('/email/imap-start', { method: 'POST' }),
+  stopImapPolling: () => request('/email/imap-stop', { method: 'POST' }),
+  getImapStatus: () => request('/email/imap-status'),
 
   // Analytics – Outreach Insights
   getPatterns: () => request('/analytics/patterns'),
@@ -122,4 +145,31 @@ export const api = {
   stopAutoApply: () => request('/auto-apply/stop', { method: 'POST' }),
   getAutoApplyStatus: () => request('/auto-apply/status'),
   getAutoApplyQuota: () => request('/auto-apply/quota'),
+
+  // Quality Dashboard & Smart Filter
+  getQualityDashboard: () => request('/dashboard/quality'),
+  getSmartFilterStats: () => request('/smart-filter/stats'),
+  getSmartFilterTop: () => request('/smart-filter/top'),
+  scoreAllJobs: () => request('/smart-filter/score-all', { method: 'POST' }),
+  getSendTimeStats: () => request('/email/send-time-stats'),
+  getAbStats: () => request('/email/ab-stats'),
+  scanCompany: (company) => request('/company/scan', { method: 'POST', body: JSON.stringify({ company }) }),
+  getConnections: (company) => request('/company/connections', { method: 'POST', body: JSON.stringify({ company }) }),
+  getResumeVariants: () => request('/resumes/variants'),
+  uploadVariantResume: (variantName, file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return fetch(`/api/resumes/variants/${variantName}/upload`, { method: 'POST', body: form }).then(r => r.json())
+  },
+  testResumeSelection: (data) => request('/resumes/test-selection', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Skills Intelligence
+  getSkillsDashboard: () => request('/skills/dashboard'),
+  analyzeSkills: (data = {}) => request('/skills/analyze', { method: 'POST', body: JSON.stringify(data) }),
+  getAnalysisStatus: () => request('/skills/analysis-status'),
+  getSkillsGaps: () => request('/skills/gaps'),
+  getSkillsTrends: () => request('/skills/trends'),
+  refreshSkillsTrends: () => request('/skills/trends/refresh', { method: 'POST' }),
+  getSkillsNews: () => request('/skills/news'),
+  refreshSkillsNews: () => request('/skills/news/refresh', { method: 'POST' }),
 }

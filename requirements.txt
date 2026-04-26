@@ -11,4 +11,7 @@ pandas
 python-dotenv
 google-genai
 crawl4ai
-Email 
+Email
+dnspython
+duckduckgo-search
+googlesearch-python

@@ -37,7 +37,7 @@ from config import (
 from extractors.text import (
     EMAIL_RE, extract_emails, extract_roles, extract_location,
     extract_experience, normalize_experience, score_domain_relevance,
-    is_hiring_post,
+    is_hiring_post, is_feed_job_post,
 )
 from extractors.fitness import (
     KEEP_ROLES, FALSE_POSITIVE_ROLES, is_relevant_role,
@@ -796,7 +796,8 @@ def scrape_feed(page, conn, max_posts: int = 100, on_event=None) -> list[dict]:
     dedup = DedupCache(conn)
     sno = 1
     scroll_count = 0
-    max_scrolls = max(20, max_posts // 3)  # ~3 posts per scroll
+    dry_streak = 0  # consecutive scrolls with no new posts
+    max_scrolls = max(30, max_posts // 2)  # more scrolls — feed has gaps between job posts
 
     emit({"type": "info", "message": f"Feed scraper: scrolling feed for up to {max_posts} posts ({max_scrolls} scrolls)"})
 
@@ -847,8 +848,8 @@ def scrape_feed(page, conn, max_posts: int = 100, on_event=None) -> list[dict]:
             if not content or len(content) < 30:
                 continue
 
-            # Must be hiring-related
-            if not is_hiring_post(content):
+            # Must be job-related (broader filter for feed posts)
+            if not is_feed_job_post(content):
                 continue
 
             c_hash = content_hash(content)
@@ -913,8 +914,13 @@ def scrape_feed(page, conn, max_posts: int = 100, on_event=None) -> list[dict]:
                   "role": roles[:25], "company": company[:20],
                   "email": (emails or "")[:25], "domain": domain})
 
-        # If no new posts in last 3 scrolls, stop
-        if new_this_scroll == 0 and scroll_count > 5:
+        # Track dry streak — stop after 5 consecutive scrolls with no new posts
+        if new_this_scroll == 0:
+            dry_streak += 1
+        else:
+            dry_streak = 0
+        if dry_streak >= 5 and scroll_count > 8:
+            emit({"type": "info", "message": f"Feed: no new posts in {dry_streak} scrolls, stopping"})
             break
 
     emit({"type": "done", "total": len(all_posts),

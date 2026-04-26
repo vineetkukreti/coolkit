@@ -120,6 +120,11 @@ def api_get_all_settings():
             "api_key_set": bool(env.get("GEMINI_API_KEY", "")),
             "api_key_preview": (env.get("GEMINI_API_KEY", "")[:8] + "...") if env.get("GEMINI_API_KEY") else "",
         },
+        "imap": {
+            "imap_host": env.get("IMAP_HOST", "imap.gmail.com"),
+            "imap_port": env.get("IMAP_PORT", "993"),
+            "imap_configured": bool(env.get("SMTP_USER") and env.get("SMTP_PASSWORD")),
+        },
     }
 
 
@@ -198,8 +203,8 @@ def api_test_email():
     try:
         _send_email_smtp(
             SMTP_CONFIG["from_email"],
-            "JobAutomate — SMTP Test",
-            "This is a test email from JobAutomate.\n\nYour SMTP configuration is working correctly.\n\nYou can now send cold outreach emails from the Email tab.",
+            "CareerKit — SMTP Test",
+            "This is a test email from CareerKit.\n\nYour SMTP configuration is working correctly.\n\nYou can now send cold outreach emails from the Email tab.",
         )
         return {"status": "ok", "message": f"Test email sent to {SMTP_CONFIG['from_email']}"}
     except Exception as e:

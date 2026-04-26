@@ -12,16 +12,13 @@ config/.env
 browser_session/
 browser_session_backup/
 .browser_profile/
-data/browser_profiles/
 
-# Data files (generated at runtime)
-*.db
-*.db-shm
-*.db-wal
+# Data folder (DB, browser profiles, scrape results, logs — all generated/sensitive)
+data/
+
+# Spreadsheets
 *.csv
 *.xlsx
-data/logs/
-data/leads/
 
 # Log files
 *.log
@@ -40,8 +37,10 @@ debug_*.png
 .DS_Store
 Thumbs.db
 
-# Resume (personal file)
+# Resumes & personal documents
 *.pdf
+*.tex
+*.bak
 
 # Node modules
 node_modules/

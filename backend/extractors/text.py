@@ -117,3 +117,71 @@ def is_hiring_post(text: str) -> bool:
     ]
     lower = text.lower()
     return any(signal in lower for signal in hiring_signals)
+
+
+def is_feed_job_post(text: str) -> bool:
+    """Broader check for job-related posts in the LinkedIn feed.
+
+    Feed posts are already curated by LinkedIn's algorithm, so we use a wider
+    net than is_hiring_post() to catch:
+    - Soft hiring signals ("my team is growing", "excited to share this role")
+    - AI/ML and healthcare-specific job mentions
+    - Job link shares (linkedin.com/jobs, greenhouse, lever, etc.)
+    - Role title mentions combined with action words
+    """
+    lower = text.lower()
+
+    # First check: explicit hiring signals (superset of is_hiring_post)
+    if is_hiring_post(text):
+        return True
+
+    # Job board / ATS links in the post
+    job_link_signals = [
+        "linkedin.com/jobs", "jobs.lever.co", "boards.greenhouse.io",
+        "ashbyhq.com", "workable.com", "apply.workable", "myworkdayjobs.com",
+        "jobs.smartrecruiters", "careers.", "jobs.", "/careers/", "/jobs/",
+        "angel.co/l/", "wellfound.com",
+    ]
+    if any(sig in lower for sig in job_link_signals):
+        return True
+
+    # Soft hiring signals — people sharing roles without explicit "hiring" keyword
+    soft_signals = [
+        "my team is hiring", "our team is hiring", "team is growing",
+        "we need a", "we need an", "looking to hire", "looking to add",
+        "come work with", "come join", "excited to share this role",
+        "check out this role", "open role", "new role", "hot job",
+        "know anyone who", "know someone who", "refer someone",
+        "interested in this role", "amazing opportunity",
+        "full-time", "full time", "part-time", "part time", "contract role",
+        "remote role", "hybrid role", "onsite role",
+        "years of experience", "years experience", "yoe",
+        "#hiring", "#opentowork", "#jobopening", "#techjobs", "#aijobs",
+        "#machinelearning", "#datascience", "#healthtech", "#healthcare",
+        "#genai", "#llm",
+    ]
+    if any(sig in lower for sig in soft_signals):
+        return True
+
+    # AI/ML + healthcare role titles combined with action verbs
+    role_keywords = [
+        "machine learning engineer", "ml engineer", "data scientist",
+        "ai engineer", "deep learning", "nlp engineer", "cv engineer",
+        "computer vision", "mlops", "data engineer", "applied scientist",
+        "research scientist", "research engineer", "genai", "gen ai",
+        "llm engineer", "prompt engineer", "ai/ml", "ai & ml",
+        "healthcare ai", "health ai", "healthtech", "clinical ai",
+        "biomedical", "bioinformatics", "clinical data",
+        "platform engineer", "backend engineer", "software engineer",
+    ]
+    action_words = [
+        "hiring", "opening", "role", "position", "job", "apply",
+        "join", "looking for", "needed", "wanted", "seeking",
+        "opportunity", "vacancy", "openings",
+    ]
+    has_role = any(r in lower for r in role_keywords)
+    has_action = any(a in lower for a in action_words)
+    if has_role and has_action:
+        return True
+
+    return False

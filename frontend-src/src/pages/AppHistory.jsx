@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Download, Briefcase, CalendarCheck, AlertTriangle, XCircle, Loader2, Search, RotateCcw, ExternalLink } from 'lucide-react'
 import { api } from '../lib/api'
 import { useToast } from '../components/Toast'
+import FilterBar, { useFilters, applyFilters, dateRangeMatch } from '../components/FilterBar'
 
 const STATUS_BADGE = {
   applied: 'bg-success-bg text-success border-success/30',
@@ -108,7 +109,16 @@ export default function AppHistory() {
 
   // Filter state
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const appFilterDefs = [
+    { key: 'status', type: 'select', label: 'Status', options: [
+      { label: 'All Statuses', value: '' }, { label: 'Applied', value: 'applied' }, { label: 'Partial', value: 'partial' }, { label: 'Failed', value: 'failed' }, { label: 'Skipped', value: 'skipped' },
+    ], match: (item, v) => item.status === v },
+    { key: 'platform', type: 'select', label: 'Platform', options: [
+      { label: 'All Platforms', value: '' }, { label: 'LinkedIn', value: 'linkedin' }, { label: 'Naukri', value: 'naukri' }, { label: 'Wellfound', value: 'wellfound' },
+    ], match: (item, v) => (item.platform || '').toLowerCase().includes(v) },
+    { key: 'date_range', type: 'dateRange', match: dateRangeMatch('timestamp') },
+  ]
+  const appFilters = useFilters(appFilterDefs)
 
   useEffect(() => {
     async function load() {
@@ -138,15 +148,15 @@ export default function AppHistory() {
   // Filtered list
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return applications.filter((a) => {
-      const matchesStatus = statusFilter === 'all' || a.status === statusFilter
+    let result = applications.filter((a) => {
       const matchesSearch =
         !q ||
         (a.title ?? '').toLowerCase().includes(q) ||
         (a.company ?? '').toLowerCase().includes(q)
-      return matchesStatus && matchesSearch
+      return matchesSearch
     })
-  }, [applications, search, statusFilter])
+    return applyFilters(result, appFilters.values, appFilterDefs)
+  }, [applications, search, appFilters.values])
 
   const partial = stats?.partial ?? 0
   const failed = (stats?.failed ?? 0) + (stats?.skipped ?? 0)
@@ -216,35 +226,17 @@ export default function AppHistory() {
             className="w-full bg-bg-secondary border border-border rounded-xl pl-9 pr-3.5 py-2 text-fg-primary text-sm placeholder:text-fg-muted focus:outline-none focus:border-accent transition-colors"
           />
         </div>
-
-        {/* Status dropdown */}
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-bg-secondary border border-border rounded-xl px-3.5 py-2 text-fg-primary text-sm focus:outline-none focus:border-accent transition-colors cursor-pointer"
-        >
-          {STATUS_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-
-        {/* Active filter indicator */}
-        {(search || statusFilter !== 'all') && (
-          <button
-            onClick={() => { setSearch(''); setStatusFilter('all') }}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs text-fg-muted hover:text-fg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors"
-          >
-            <RotateCcw size={12} />
-            Clear
-          </button>
-        )}
-
-        {/* Count indicator when filtered */}
-        {!loading && hasApplications && (search || statusFilter !== 'all') && (
-          <span className="text-fg-muted text-xs ml-auto">
-            {filtered.length} of {applications.length} results
-          </span>
-        )}
+      </div>
+      <div className="mb-4">
+        <FilterBar
+          filters={appFilterDefs}
+          values={appFilters.values}
+          onChange={appFilters.setFilter}
+          onClear={() => { setSearch(''); appFilters.clearFilters() }}
+          isFiltered={appFilters.isFiltered || !!search}
+          resultCount={filtered.length}
+          totalCount={applications.length}
+        />
       </div>
 
       {/* Table card */}
@@ -294,7 +286,7 @@ export default function AppHistory() {
             <Search size={28} className="text-fg-muted opacity-40" />
             <p className="text-fg-muted text-sm">No applications match your filters.</p>
             <button
-              onClick={() => { setSearch(''); setStatusFilter('all') }}
+              onClick={() => { setSearch(''); appFilters.clearFilters() }}
               className="text-accent text-xs hover:underline"
             >
               Clear filters

@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """
-Email Enrichment Engine for Startup Leads.
+Email Enrichment Engine for Startup Leads & Posts.
 
-Finds contact/career emails for companies by:
-1. Scraping the company website (contact, about, careers, team pages)
-2. Searching DuckDuckGo for "{company} email contact"
-3. Searching for "{company} careers email"
-4. Extracting all emails via regex, scoring & deduplicating
+Finds contact/career emails for companies using a multi-strategy pipeline:
+1. Hunter.io API (if configured, 25 free/month)
+2. Company website scraping
+3. DuckDuckGo search
+4. Google search fallback
+5. Person-name email patterns (if author_name available)
+6. Generic email patterns (info@, hr@, careers@)
+
+All strategies are imported from strategies.py. Pattern-guessed emails
+are verified via MX + SMTP before saving.
 
 Usage:
-    from enrich_emails import enrich_leads
+    from email_finder.enrich import find_emails_for_company, enrich_leads
+    emails = find_emails_for_company("Acme Corp", website="https://acme.com", author_name="John Doe")
     enriched = enrich_leads(conn, max_leads=50, on_progress=callback)
 """
 
@@ -17,336 +23,91 @@ import re
 import time
 import random
 import sqlite3
-import requests
-from urllib.parse import urljoin, urlparse
-from bs4 import BeautifulSoup
-from pathlib import Path
+import logging
 
-# ─── Config ──────────────────────────────────────────────────────────────────
-
-USER_AGENTS = [
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-]
-
-# Pages most likely to contain emails
-CONTACT_PATHS = [
-    "/contact", "/contact-us", "/contactus", "/contact.html",
-    "/about", "/about-us", "/aboutus", "/about.html",
-    "/careers", "/jobs", "/career", "/hiring",
-    "/team", "/our-team", "/people", "/leadership",
-    "/support", "/help",
-    "/",  # homepage fallback
-]
-
-# Email regex — catches most valid emails
-EMAIL_RE = re.compile(
-    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
-    re.IGNORECASE,
+from email_finder.strategies import (
+    strategy_hunter_io,
+    strategy_website,
+    strategy_duckduckgo,
+    strategy_google_search,
+    strategy_person_patterns,
+    strategy_generic_patterns,
+    infer_domain,
+    extract_domain,
+    score_email,
+    verify_batch,
 )
 
-# Junk emails to skip
-JUNK_PATTERNS = [
-    "example.com", "test.com", "email.com", "domain.com", "yourcompany",
-    "sentry.io", "wixpress.com", "googleapis.com", "cloudflare",
-    "gravatar.com", "wordpress.com", "w3.org", "schema.org",
-    "facebook.com", "twitter.com", "google.com", "github.com", "duckduckgo.com",
-    "jquery.com", "bootstrap", "fontawesome", "tailwindcss",
-    "placeholder", "noreply", "no-reply", "donotreply",
-    "webpack", "localhost", "0.0.0.0",
-    ".png", ".jpg", ".gif", ".svg", ".css", ".js",
-]
-
-# Preferred email patterns (scored higher)
-GOOD_PREFIXES = [
-    "hr@", "careers@", "hiring@", "jobs@", "recruit",
-    "contact@", "info@", "hello@", "team@", "support@",
-    "admin@", "office@", "business@", "general@",
-    "ceo@", "founder@", "cto@",
-]
+log = logging.getLogger("email_finder")
 
 
-def _random_headers():
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
+# ─── Main: find emails for one company ───────────────────────────────────────
 
-
-def _is_junk_email(email: str) -> bool:
-    """Filter out obviously fake/system emails."""
-    email_lower = email.lower()
-    if len(email) < 6 or len(email) > 80:
-        return True
-    if any(j in email_lower for j in JUNK_PATTERNS):
-        return True
-    # Skip emails that are just hashes or random strings
-    local_part = email_lower.split("@")[0]
-    if len(local_part) > 30:
-        return True
-    # Skip if local part is mostly numbers
-    digits = sum(1 for c in local_part if c.isdigit())
-    if len(local_part) > 4 and digits / len(local_part) > 0.6:
-        return True
-    return False
-
-
-def _score_email(email: str) -> int:
-    """Score an email — higher = more useful for outreach."""
-    email_lower = email.lower()
-    score = 10  # base score
-
-    # Prefer career/contact emails
-    for prefix in GOOD_PREFIXES:
-        if email_lower.startswith(prefix) or prefix.rstrip("@") in email_lower:
-            score += 20
-            break
-
-    # Prefer company domains over generic
-    domain = email_lower.split("@")[1] if "@" in email_lower else ""
-    generic_domains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "protonmail.com", "aol.com"]
-    if domain in generic_domains:
-        score -= 5  # still useful, just less so
-    else:
-        score += 10  # company domain = gold
-
-    # Named person emails are valuable
-    if "." in email_lower.split("@")[0]:  # e.g. john.doe@company.com
-        score += 5
-
-    return score
-
-
-def _extract_emails_from_html(html: str) -> list[str]:
-    """Extract and deduplicate emails from HTML content."""
-    # Also check mailto: links
-    soup = BeautifulSoup(html, "lxml")
-
-    emails = set()
-
-    # From mailto links
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "mailto:" in href:
-            email = href.split("mailto:")[1].split("?")[0].strip()
-            if email:
-                emails.add(email.lower())
-
-    # From raw text
-    text = soup.get_text(separator=" ")
-    for match in EMAIL_RE.findall(text):
-        emails.add(match.lower())
-
-    # From href/src attributes (sometimes emails in data attributes)
-    for tag in soup.find_all(True):
-        for attr_val in tag.attrs.values():
-            if isinstance(attr_val, str):
-                for match in EMAIL_RE.findall(attr_val):
-                    emails.add(match.lower())
-
-    # Filter junk
-    return [e for e in emails if not _is_junk_email(e)]
-
-
-def _fetch_page(url: str, timeout: int = 10) -> str | None:
-    """Fetch a page, return HTML or None."""
-    try:
-        resp = requests.get(url, headers=_random_headers(), timeout=timeout, allow_redirects=True)
-        if resp.status_code == 200 and "text/html" in resp.headers.get("content-type", ""):
-            return resp.text
-    except Exception:
-        pass
-    return None
-
-
-# ─── Strategy 1: Scrape company website ─────────────────────────────────────
-
-def scrape_website_emails(website: str) -> list[dict]:
-    """Crawl a company website for emails. Returns list of {email, source, score}."""
-    if not website:
-        return []
-
-    # Normalize URL
-    if not website.startswith("http"):
-        website = "https://" + website
-    website = website.rstrip("/")
-
-    found = []
-    seen_emails = set()
-
-    for path in CONTACT_PATHS:
-        url = website + path if path != "/" else website
-        html = _fetch_page(url)
-        if not html:
-            continue
-
-        emails = _extract_emails_from_html(html)
-        for email in emails:
-            if email not in seen_emails:
-                seen_emails.add(email)
-                found.append({
-                    "email": email,
-                    "source": f"website:{path}",
-                    "score": _score_email(email),
-                })
-
-        # Don't hammer the server
-        time.sleep(random.uniform(0.5, 1.5))
-
-        # Stop early if we found good emails
-        if len(found) >= 5:
-            break
-
-    return found
-
-
-# ─── Strategy 2: DuckDuckGo search ──────────────────────────────────────────
-
-def search_duckduckgo_emails(company_name: str, extra_terms: str = "") -> list[dict]:
-    """Search DuckDuckGo for company emails."""
-    queries = [
-        f"{company_name} contact email",
-        f"{company_name} careers email {extra_terms}".strip(),
-    ]
-
-    found = []
-    seen_emails = set()
-
-    for query in queries:
-        try:
-            resp = requests.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": query},
-                headers=_random_headers(),
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                continue
-
-            # Extract emails from search results page
-            emails = _extract_emails_from_html(resp.text)
-            for email in emails:
-                if email not in seen_emails:
-                    seen_emails.add(email)
-                    found.append({
-                        "email": email,
-                        "source": f"duckduckgo:{query[:40]}",
-                        "score": _score_email(email),
-                    })
-
-            # Also follow top result links
-            soup = BeautifulSoup(resp.text, "lxml")
-            links = soup.select("a.result__a")[:3]  # top 3 results
-            for link in links:
-                href = link.get("href", "")
-                if not href or "duckduckgo" in href:
-                    continue
-                page_html = _fetch_page(href)
-                if page_html:
-                    for email in _extract_emails_from_html(page_html):
-                        if email not in seen_emails:
-                            seen_emails.add(email)
-                            found.append({
-                                "email": email,
-                                "source": f"search_result:{urlparse(href).netloc}",
-                                "score": _score_email(email),
-                            })
-                time.sleep(random.uniform(0.5, 1.0))
-
-        except Exception:
-            continue
-
-        time.sleep(random.uniform(1.0, 2.0))
-
-    return found
-
-
-# ─── Strategy 3: Common email pattern guessing ──────────────────────────────
-
-def guess_common_emails(company_name: str, website: str) -> list[dict]:
-    """Generate common email patterns based on company domain."""
-    if not website:
-        return []
-
-    # Extract domain
-    if not website.startswith("http"):
-        website = "https://" + website
-    domain = urlparse(website).netloc
-    if not domain:
-        return []
-    # Strip www.
-    if domain.startswith("www."):
-        domain = domain[4:]
-
-    prefixes = ["info", "contact", "hello", "hr", "careers", "hiring", "jobs", "team", "admin"]
-    guesses = []
-    for prefix in prefixes:
-        email = f"{prefix}@{domain}"
-        guesses.append({
-            "email": email,
-            "source": "pattern_guess",
-            "score": _score_email(email) - 10,  # lower score since unverified
-        })
-
-    return guesses
-
-
-# ─── Verify email exists (lightweight) ───────────────────────────────────────
-
-def _verify_email_quick(email: str) -> bool:
-    """Quick check - just verify the domain has MX records."""
-    import subprocess
-    domain = email.split("@")[1] if "@" in email else ""
-    if not domain:
-        return False
-    try:
-        result = subprocess.run(
-            ["dig", "+short", "MX", domain],
-            capture_output=True, text=True, timeout=5,
-        )
-        return bool(result.stdout.strip())
-    except Exception:
-        return True  # assume valid if we can't check
-
-
-# ─── Main enrichment function ────────────────────────────────────────────────
-
-def find_emails_for_company(company_name: str, website: str = "", location: str = "") -> list[dict]:
+def find_emails_for_company(
+    company_name: str,
+    website: str = "",
+    location: str = "",
+    author_name: str = "",
+) -> list[dict]:
     """Find emails for a single company using all strategies.
-    Returns sorted list of {email, source, score, verified}."""
 
+    Returns sorted list of {email, source, score, verified}.
+    """
     all_found = []
     seen = set()
 
-    # Strategy 1: Scrape website (most reliable)
+    def _collect(items):
+        for item in items:
+            if item["email"] not in seen:
+                seen.add(item["email"])
+                all_found.append(item)
+
+    # Resolve domain early — needed by Hunter, person patterns, generic patterns
+    domain = extract_domain(website)
+
+    # If no website/domain, try to infer it
+    if not domain and company_name:
+        inferred = infer_domain(company_name)
+        if inferred:
+            domain = inferred
+            log.debug(f"Inferred domain for {company_name}: {domain}")
+
+    # Strategy 1: Hunter.io (highest confidence, uses API quota)
+    if domain:
+        _collect(strategy_hunter_io(domain))
+
+    # Strategy 2: Website scraping (most reliable free method)
     if website:
-        for item in scrape_website_emails(website):
-            if item["email"] not in seen:
-                seen.add(item["email"])
-                all_found.append(item)
+        _collect(strategy_website(website))
 
-    # Strategy 2: Web search (finds emails from job boards, reviews, etc.)
+    # Strategy 3: DuckDuckGo search
     extra = location.split(",")[0] if location else ""
-    for item in search_duckduckgo_emails(company_name, extra):
-        if item["email"] not in seen:
-            seen.add(item["email"])
-            all_found.append(item)
+    _collect(strategy_duckduckgo(company_name, extra))
 
-    # Strategy 3: Pattern guessing (last resort)
-    if not all_found and website:
-        for item in guess_common_emails(company_name, website):
-            if item["email"] not in seen:
-                seen.add(item["email"])
-                all_found.append(item)
+    # Strategy 4: Google search fallback (only if we haven't found much yet)
+    if len(all_found) < 2:
+        _collect(strategy_google_search(company_name, extra))
+
+    # Strategy 5: Person-name patterns (if we have both author name and domain)
+    person_guesses = []
+    if author_name and domain:
+        person_guesses = strategy_person_patterns(author_name, domain)
+        # Don't add to all_found yet — verify first
+
+    # Strategy 6: Generic patterns (last resort, only if nothing found)
+    generic_guesses = []
+    if not all_found and domain:
+        generic_guesses = strategy_generic_patterns(domain)
+
+    # ── Verify pattern-guessed emails before adding ──
+    # This is the key fix: previously guesses were saved unverified
+    guesses_to_verify = (person_guesses + generic_guesses)[:8]  # limit to 8 for speed
+    if guesses_to_verify:
+        verified_guesses = verify_batch(guesses_to_verify, timeout=5)
+        _collect(verified_guesses)
 
     # Sort by score (best first)
     all_found.sort(key=lambda x: x["score"], reverse=True)
-
-    # Quick MX verification for top results
-    for item in all_found[:5]:
-        item["verified"] = _verify_email_quick(item["email"])
 
     return all_found
 
@@ -388,7 +149,7 @@ def enrich_leads(
             (max_leads,),
         ).fetchall()
     else:
-        # Posts without emails — get company + content + links for each post
+        # Posts without emails — get company + content + links + author for each post
         rows = conn.execute(
             """SELECT p.id, p.author_name, p.content, p.links,
                       (SELECT j.company FROM jobs j WHERE j.post_id = p.id LIMIT 1) as company_name,
@@ -418,6 +179,7 @@ def enrich_leads(
         lead_id = row["id"]
         company = row.get("company_name") or ""
         location = row.get("location") or ""
+        author_name = row.get("author_name") or ""
 
         # Extract website from links (first http link that looks like a company site)
         raw_links = row.get("website") or row.get("links") or ""
@@ -431,14 +193,11 @@ def enrich_leads(
 
         # If no company name, try to extract from author or content
         if not company:
-            author = row.get("author_name") or ""
+            author = author_name
             content = row.get("content") or ""
-            # Use author name as company if it looks like a company (contains Ltd, Inc, etc.)
             if any(kw in author for kw in ["Ltd", "Pvt", "Inc", "LLC", "Corp", "Technologies", "Health", "Labs"]):
                 company = author
-            # Try to find company name from content (look for "at CompanyName" or "@ CompanyName")
             elif content:
-                import re
                 m = re.search(r'(?:at|@)\s+([A-Z][A-Za-z0-9\s&.]+?)(?:\s*[\n,\-|]|$)', content[:500])
                 if m:
                     company = m.group(1).strip()
@@ -464,11 +223,11 @@ def enrich_leads(
             continue
 
         try:
-            found = find_emails_for_company(company, website, location)
+            found = find_emails_for_company(company, website, location, author_name)
 
             if found:
                 # Pick best email(s)
-                best_emails = [f["email"] for f in found[:3]]  # top 3
+                best_emails = [f["email"] for f in found[:3]]
                 email_str = ", ".join(best_emails)
                 sources = [f["source"] for f in found[:3]]
 
@@ -485,12 +244,10 @@ def enrich_leads(
                         ),
                     )
                 else:
-                    # Update this post
                     conn.execute(
                         "UPDATE posts SET email = ?, updated_at = datetime('now') WHERE id = ?",
                         (email_str, lead_id),
                     )
-                    # Also update other posts from the same company that lack emails
                     if company:
                         conn.execute(
                             """UPDATE posts SET email = ?, updated_at = datetime('now')
@@ -548,24 +305,31 @@ def enrich_leads(
 
 if __name__ == "__main__":
     import argparse
+    import sys
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
+
     from db import init_db
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Find emails for startup leads")
     parser.add_argument("--max", type=int, default=10, help="Max leads to process")
     parser.add_argument("--target", choices=["startup_leads", "posts"], default="startup_leads")
     parser.add_argument("--company", type=str, help="Test with a single company name")
     parser.add_argument("--website", type=str, default="", help="Company website (for --company)")
+    parser.add_argument("--author", type=str, default="", help="Author/person name (for --company)")
     args = parser.parse_args()
 
     if args.company:
         print(f"\nSearching emails for: {args.company}")
-        print(f"Website: {args.website or 'none'}\n")
-        results = find_emails_for_company(args.company, args.website)
+        print(f"Website: {args.website or 'none'}")
+        print(f"Author: {args.author or 'none'}\n")
+        results = find_emails_for_company(args.company, args.website, author_name=args.author)
         if results:
             print(f"Found {len(results)} emails:\n")
             for r in results:
-                v = "MX-ok" if r.get("verified") else ""
-                print(f"  [{r['score']:3d}] {r['email']:40s}  via {r['source']:30s}  {v}")
+                v = r.get("verified", "?")
+                print(f"  [{r['score']:3d}] {r['email']:40s}  via {r['source']:30s}  [{v}]")
         else:
             print("No emails found.")
     else:

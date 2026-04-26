@@ -1,9 +1,11 @@
 """Email service — generation, sending, and bulk worker operations."""
 
+import json
 import os
 import random
 import re
 import smtplib
+import socket
 import time
 import threading
 from email.mime.text import MIMEText
@@ -14,8 +16,13 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+import dns.resolver
+
 from config import PROFILE, RESUME_SKILLS
 from db import init_db
+from services.email_ab_test import pick_variant, record_variant
+from services.referral_detector import find_connections
+from services.followup_cadence import analyze_followups, record_followup
 
 load_dotenv()
 
@@ -36,7 +43,22 @@ SMTP_CONFIG = {
 # Email blocklist (never send outreach to these)
 # ───────────────────────────────────────────────
 
-EMAIL_BLOCKLIST = ["southguild"]  # current employer — never send outreach here
+EMAIL_BLOCKLIST = [
+    "southguild",          # current employer
+    "lnkd.in",            # LinkedIn shortened URLs (not real emails)
+    "hubs.li",            # HubSpot tracking URLs (not real emails)
+    "oscarhealth.com",    # rejects external email
+    "komodohealth.com",   # rejects external email
+    "hingehealth.com",    # rejects external email
+    "radformation.com",   # bounces
+    "capgemini.com",      # rejects external email
+    "cognizant.com",      # rejects external email
+    "reed.co.uk",         # bounces (malformed addresses like .reed@)
+    "reedglobal.com",     # bounces
+    "synextra.co.uk",     # bounces
+    "captionhealth.com",  # bounces
+    "nimblercm.com",      # bounces
+]
 
 
 def _is_blocked_email(email: str, company: str = "") -> bool:
@@ -58,31 +80,33 @@ You will receive structured data about a hiring post. Some fields may be missing
 ━━━ CANDIDATE PROFILE (IMPORTANT CONTEXT) ━━━
 
 Name: Vineet Kukreti
-Title: AI Engineer | ~1.5-2 years experience
-Location: India
+Title: AI Engineer | 2 years experience
+Location: India (Coimbatore)
 LinkedIn: linkedin.com/in/vineetkukreti
-GitHub: github.com/vineetkukreti34
+GitHub: github.com/vineetkukreti
 
-CURRENT ROLE (USE THIS — it shows active, real-world healthcare experience):
-- Currently working in the US healthcare/medical domain
-- Building fax automation systems for hospitals and patients
-- Solving real hospital workflow problems — automating fax-based communication between healthcare providers and patients
-- This is production healthcare work with real compliance requirements
+CURRENT ROLE:
+- AI Engineer at Southguild Technologies (May 2024 – Present)
+- Building production-grade healthcare AI platforms across dermatopathology and oncology
+- Supporting real-world clinical and biomedical research workflows
 
 Strong experience in:
-- RAG pipelines
-- LLM-based systems
-- ETL pipelines & data workflows
-- API integrations
-- Healthcare AI systems (currently working in this domain)
-- Automation systems
+- Knowledge Graphs (Neo4j) & NLP-to-Cypher pipelines
+- LLM-driven systems (Cohere, Claude, OpenAI)
+- ETL pipelines for biomedical data
+- FastAPI microservices & Docker deployment
+- Healthcare AI (dermatopathology, oncology)
 
 Projects (pick 2-3 that BEST match the target role):
-1. Enterprise RAG System — Production RAG pipeline with vector DB (Qdrant), semantic chunking, hybrid search + reranking. Handles 10K+ documents with sub-second retrieval. Focused on improving retrieval quality and reducing response latency.
-2. Healthcare AI Pipeline — AI-powered medical pipeline with LLM extraction & knowledge graphs (Neo4j). Processes clinical notes into structured data. HIPAA-aware design.
-3. US Healthcare Fax Automation (Current) — Building automation systems for hospital-patient fax workflows. Real production healthcare system handling compliance-sensitive medical communications.
-4. Biomedical ETL Platform — Large-scale ETL + biomedical data ingestion from PubMed, clinical trials, FDA databases. Automated pipeline processing 50K+ records/day.
-5. Excel Automation Engine — Schema detection + intelligent transformation system. Auto-maps messy spreadsheets to structured DB schemas using LLMs.
+1. PathAssist: Dermatopathology Retrieval System — End-to-end clinician-validated retrieval system using Neo4j knowledge graphs. NLP-to-Cypher pipeline achieving 98.8% accuracy (88/89), 5x faster clinical insight retrieval, 60% reduction in clinician research time. Validated by clinicians, presented at medical conference.
+2. Target Discovery ETL Pipeline — Unified ETL pipeline integrating heterogeneous biomedical databases for gastric cancer drug-target discovery. Modeled gene-protein-pathway-mutation interactions. Graph analytics over 100K+ records, 65% improvement in biomedical data accessibility.
+3. Navya Medical AI Pipeline — LLM-assisted oncology data pipeline for automated patient data extraction and classification. Reduced manual processing by 80%, improved data consistency across clinical datasets.
+
+ACHIEVEMENTS:
+- 3 patents in AI/ML applications
+- 2 research papers published at IEEE International Conferences
+- PMSS Scholarship (Prime Minister's Scholarship Scheme)
+- B.Tech (Hons.) in CS Engineering, 8.5 CGPA, ML & AI specialization
 
 ━━━ CRITICAL INSTRUCTIONS ━━━
 
@@ -207,6 +231,15 @@ def _generate_email_with_gemini(post_data: dict) -> dict:
     input_block = _build_email_input(post_data)
     prompt = f"{EMAIL_AGENT_PROMPT}\n\n━━━ INPUT DATA FOR THIS EMAIL ━━━\n\n{input_block}\n\nGenerate the email now."
 
+    if post_data.get("variant_instruction"):
+        prompt += f"\n\nSTRATEGY: {post_data['variant_instruction']}"
+
+    if post_data.get("referral_context"):
+        ctx = post_data["referral_context"]
+        contact = ctx["contacts"][0] if ctx.get("contacts") else None
+        if contact:
+            prompt += f"\n\nCONNECTION AT COMPANY: You know {contact.get('name', 'someone')} ({contact.get('headline', '')}) at this company. {contact.get('detail', '')}. Reference this connection naturally to establish warmth — don't be creepy, just mention it briefly."
+
     resp = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
         json={
@@ -283,6 +316,9 @@ def _parse_generated_email(text: str, post_data: dict) -> dict:
         "[Recruiter Name]": first_name,
         "[Hiring Manager Name]": first_name,
         "[Hiring Manager]": first_name,
+        "[Author Name]": first_name,
+        "[Author name]": first_name,
+        "[author name]": first_name,
         "[Your Name]": "Vineet",
         "[Name]": first_name,
         "[Company]": company or "your team",
@@ -294,6 +330,10 @@ def _parse_generated_email(text: str, post_data: dict) -> dict:
         subject = subject.replace(placeholder, value)
         body = body.replace(placeholder, value)
 
+    # Catch-all: replace any remaining [brackets] the dict missed
+    subject = re.sub(r'\[([^\]]+)\]', '', subject)
+    body = re.sub(r'\[([^\]]+)\]', lambda m: first_name if 'name' in m.group(1).lower() else '', body)
+
     # Strip trailing signature duplicates
     body = body.rstrip()
     if body.endswith("Vineet Kukreti"):
@@ -303,8 +343,25 @@ def _parse_generated_email(text: str, post_data: dict) -> dict:
     return {"subject": subject, "body": body}
 
 
+def validate_email_before_send(email: str) -> dict:
+    """Quick validation: format + MX records. Returns {valid, reason}."""
+    if not email or not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
+        return {"valid": False, "reason": f"Malformed email address: {email}"}
+    domain = email.split("@")[1]
+    try:
+        dns.resolver.resolve(domain, "MX", lifetime=5)
+    except Exception:
+        return {"valid": False, "reason": f"Domain '{domain}' has no mail server (MX records not found)"}
+    return {"valid": True, "reason": "ok"}
+
+
 def _send_email_smtp(to_email: str, subject: str, body: str, attach_resume: bool = False) -> dict:
     """Send email via SMTP (Gmail). Optionally attach resume PDF."""
+    # Handle comma-separated addresses — send to first valid one
+    if "," in to_email:
+        addresses = [a.strip() for a in to_email.split(",") if a.strip()]
+        to_email = addresses[0]  # Use first address as primary recipient
+
     cfg = SMTP_CONFIG
     if not cfg["password"]:
         raise ValueError("SMTP_PASSWORD not set in .env. Generate a Gmail App Password first.")
@@ -337,21 +394,38 @@ def _send_email_smtp(to_email: str, subject: str, body: str, attach_resume: bool
                 pdf.add_header("Content-Disposition", "attachment", filename=resume_path.name)
                 msg.attach(pdf)
 
-    with smtplib.SMTP(cfg["host"], cfg["port"]) as server:
-        server.starttls()
-        server.login(cfg["user"], cfg["password"])
-        server.send_message(msg)
-
-    return {"status": "sent", "to": to_email, "subject": subject}
+    try:
+        with smtplib.SMTP(cfg["host"], cfg["port"]) as server:
+            server.starttls()
+            server.login(cfg["user"], cfg["password"])
+            server.send_message(msg)
+        return {"status": "sent", "to": to_email, "subject": subject}
+    except smtplib.SMTPRecipientsRefused as e:
+        return {"status": "failed", "to": to_email, "error_type": "invalid_address", "error_message": f"Recipient refused: {e}"}
+    except smtplib.SMTPAuthenticationError as e:
+        return {"status": "failed", "to": to_email, "error_type": "auth_error", "error_message": f"Auth failed: {e}"}
+    except smtplib.SMTPServerDisconnected as e:
+        return {"status": "failed", "to": to_email, "error_type": "connection", "error_message": f"Server disconnected: {e}"}
+    except smtplib.SMTPResponseException as e:
+        return {"status": "failed", "to": to_email, "error_type": "rejected", "error_message": f"SMTP error {e.smtp_code}: {e.smtp_error}"}
+    except (socket.timeout, TimeoutError) as e:
+        return {"status": "failed", "to": to_email, "error_type": "timeout", "error_message": f"Timeout: {e}"}
+    except Exception as e:
+        return {"status": "failed", "to": to_email, "error_type": "unknown", "error_message": str(e)[:500]}
 
 
 def send_email_with_resume(to_email: str, subject: str, body: str, resume_path: str = "") -> dict:
     """Public wrapper: send an email with resume attached.
     Returns {"success": True/False, "error": ...}
     """
+    check = validate_email_before_send(to_email)
+    if not check["valid"]:
+        return {"success": False, "error": check["reason"]}
     try:
-        _send_email_smtp(to_email, subject, body, attach_resume=True)
-        return {"success": True}
+        result = _send_email_smtp(to_email, subject, body, attach_resume=True)
+        if result["status"] == "sent":
+            return {"success": True}
+        return {"success": False, "error": result.get("error_message", "Send failed")[:300]}
     except Exception as e:
         return {"success": False, "error": str(e)[:300]}
 
@@ -376,6 +450,13 @@ email_worker_state = {
 def _bulk_generate_worker(post_ids: list[int]):
     """Background thread: generate emails for given post IDs."""
     conn = init_db()
+    run_id = conn.execute(
+        "INSERT INTO worker_runs (worker_type, total) VALUES (?, ?)",
+        ("bulk_generate", len(post_ids))
+    ).lastrowid
+    conn.commit()
+    succeeded_count = 0
+    failed_count = 0
     with _email_lock:
         email_worker_state["running"] = True
         email_worker_state["task"] = "generating"
@@ -414,36 +495,105 @@ def _bulk_generate_worker(post_ids: list[int]):
         with _email_lock:
             email_worker_state["current_label"] = f"{row.get('author_name', '?')} | {row.get('role', '?')} @ {row.get('company', '?')}"
 
+        # Pick A/B variant
+        variant = pick_variant()
+        variant_strategies = {"A": "proof-first: Lead with your strongest quantified achievement, then connect it to their specific need.", "B": "challenge-first: Lead with their specific challenge or pain point, then show how you've solved exactly that."}
+        row["variant_instruction"] = variant_strategies.get(variant, "")
+
+        # Check referral connections
+        company = row.get("company", "")
+        referral_info = None
+        outreach_type = "cold"
+        if company:
+            try:
+                referral_info = find_connections(conn, company)
+                if referral_info.get("has_connections"):
+                    row["referral_context"] = referral_info
+                    rec = referral_info.get("recommendation", "cold_apply")
+                    if rec in ("warm_followup", "warm_intro"):
+                        outreach_type = "warm"
+                    elif rec == "referral_outreach":
+                        outreach_type = "referral"
+            except Exception:
+                pass
+
+        to_email = row.get("email", "")
+        # Validate email quality
+        if to_email and "," in to_email:
+            to_email = to_email.split(",")[0].strip()  # Use first address
+
+        validation = validate_email_before_send(to_email)
+        if not validation["valid"]:
+            with _email_lock:
+                email_worker_state["results"].append({"post_id": post_id, "status": "skipped", "message": validation["reason"]})
+            failed_count += 1
+            continue
+
+        # Dedup: skip if we already emailed this recipient
+        existing = conn.execute(
+            "SELECT id FROM email_outreach WHERE recipient_email = ? AND status IN ('sent', 'replied', 'draft')",
+            (to_email,)
+        ).fetchone()
+        if existing:
+            with _email_lock:
+                email_worker_state["results"].append({"post_id": post_id, "status": "skipped", "message": f"Already emailed {to_email}"})
+            failed_count += 1
+            continue
+
+        # Skip generic addresses (95% bounce rate)
+        generic_prefixes = ('info@', 'careers@', 'hr@', 'support@', 'contact@', 'hello@', 'jobs@', 'hiring@', 'team@', 'recruitment@', 'apply@', 'noreply@', 'no-reply@')
+        if to_email.lower().startswith(generic_prefixes):
+            with _email_lock:
+                email_worker_state["results"].append({"post_id": post_id, "status": "skipped", "message": f"Generic address: {to_email}"})
+            failed_count += 1
+            continue
+
         try:
             email = _generate_email_with_gemini(row)
             # Save draft to DB
             existing = conn.execute(
                 "SELECT id FROM email_outreach WHERE post_id = ? AND status = 'draft'", (post_id,),
             ).fetchone()
-            to_email = row.get("email", "")
+            cursor = conn.cursor()
             if existing:
-                conn.execute(
+                cursor.execute(
                     "UPDATE email_outreach SET recipient_email=?, subject=?, body=?, created_at=datetime('now') WHERE id=?",
                     (to_email, email["subject"], email["body"], existing["id"]),
                 )
+                outreach_id = existing["id"]
             else:
-                conn.execute(
+                cursor.execute(
                     "INSERT INTO email_outreach (post_id, recipient_email, subject, body, status) VALUES (?, ?, ?, ?, 'draft')",
                     (post_id, to_email, email["subject"], email["body"]),
                 )
+                outreach_id = cursor.lastrowid
             conn.commit()
+            try:
+                record_variant(conn, outreach_id, variant, variant_strategies.get(variant, ""))
+                cursor.execute("UPDATE email_outreach SET outreach_type = ? WHERE id = ?", (outreach_type, outreach_id))
+                conn.commit()
+            except Exception:
+                pass
             with _email_lock:
                 email_worker_state["results"].append({
                     "post_id": post_id, "status": "ok",
                     "to_email": to_email, "author_name": row.get("author_name", ""),
                     **email,
                 })
+            succeeded_count += 1
         except Exception as e:
             with _email_lock:
                 email_worker_state["results"].append({"post_id": post_id, "status": "error", "message": str(e)[:200]})
+            failed_count += 1
 
         # Rate limit delay between API calls
         time.sleep(random.uniform(1, 2))
+
+    conn.execute(
+        "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=?, results=? WHERE id=?",
+        ("completed", succeeded_count, failed_count, json.dumps(email_worker_state.get("results", [])[-20:]), run_id)
+    )
+    conn.commit()
 
     with _email_lock:
         email_worker_state["running"] = False
@@ -459,6 +609,14 @@ def _bulk_send_worker(attach_resume: bool = True):
            FROM email_outreach eo WHERE eo.status = 'draft' AND eo.subject IS NOT NULL AND eo.body IS NOT NULL"""
     ).fetchall()
     drafts = [dict(r) for r in drafts]
+
+    run_id = conn.execute(
+        "INSERT INTO worker_runs (worker_type, total) VALUES (?, ?)",
+        ("bulk_send", len(drafts))
+    ).lastrowid
+    conn.commit()
+    succeeded_count = 0
+    failed_count = 0
 
     with _email_lock:
         email_worker_state["running"] = True
@@ -480,11 +638,22 @@ def _bulk_send_worker(attach_resume: bool = True):
                 email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "skipped", "message": "Blocked (current employer)"})
             continue
 
+        # Dedup: skip if recipient already has a 'sent' record (different outreach entry)
+        already_sent = conn.execute(
+            "SELECT id FROM email_outreach WHERE recipient_email = ? AND status = 'sent' AND id != ?",
+            (draft["recipient_email"], draft["id"])
+        ).fetchone()
+        if already_sent:
+            with _email_lock:
+                email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "skipped", "message": f"Already sent to {draft['recipient_email']}"})
+            failed_count += 1
+            continue
+
         with _email_lock:
             email_worker_state["current_label"] = f"{draft['recipient_email']}"
 
-        try:
-            _send_email_smtp(draft["recipient_email"], draft["subject"], draft["body"], attach_resume=attach_resume)
+        result = _send_email_smtp(draft["recipient_email"], draft["subject"], draft["body"], attach_resume=attach_resume)
+        if result["status"] == "sent":
             conn.execute(
                 "UPDATE email_outreach SET status='sent', sent_at=datetime('now') WHERE id=?",
                 (draft["id"],),
@@ -492,16 +661,565 @@ def _bulk_send_worker(attach_resume: bool = True):
             conn.commit()
             with _email_lock:
                 email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "sent"})
-        except Exception as e:
-            conn.execute("UPDATE email_outreach SET status='failed' WHERE id=?", (draft["id"],))
+            succeeded_count += 1
+        else:
+            conn.execute(
+                "UPDATE email_outreach SET status='failed', error_message=?, error_type=? WHERE id=?",
+                (result.get("error_message", "")[:500], result.get("error_type", "unknown"), draft["id"])
+            )
             conn.commit()
             with _email_lock:
-                email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "failed", "error": str(e)[:200]})
+                email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "failed", "error": result.get("error_message", "")[:200]})
+            failed_count += 1
 
         # Anti-spam delay
         time.sleep(random.uniform(3, 8))
+
+    conn.execute(
+        "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=?, results=? WHERE id=?",
+        ("completed", succeeded_count, failed_count, json.dumps(email_worker_state.get("results", [])[-20:]), run_id)
+    )
+    conn.commit()
 
     with _email_lock:
         email_worker_state["running"] = False
         email_worker_state["task"] = None
         email_worker_state["current_label"] = ""
+
+
+# ── Auto Follow-up Worker ──────────────────────────────────────────────────
+
+followup_worker_state = {
+    "running": False,
+    "current": 0,
+    "total": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "results": [],
+    "error": None,
+}
+
+_followup_lock = threading.Lock()
+
+
+def _generate_followup_email(conn, outreach_id):
+    """Generate a follow-up email for an existing outreach."""
+    row = conn.execute(
+        "SELECT eo.*, p.content, p.author_name, j.role, j.company "
+        "FROM email_outreach eo "
+        "LEFT JOIN posts p ON p.id = eo.post_id "
+        "LEFT JOIN jobs j ON j.post_id = eo.post_id "
+        "WHERE eo.id = ?", (outreach_id,)
+    ).fetchone()
+    if not row:
+        return None
+
+    row = dict(row)
+    followup_num = (row.get("followup_count") or 0) + 1
+    original_subject = row.get("subject") or "your previous email"
+    recipient = row.get("recipient_email")
+    company = row.get("company", "the company")
+    role = row.get("role", "the role")
+
+    prompt = f"""You are writing follow-up email #{followup_num} for a job application.
+
+ORIGINAL EMAIL SUBJECT: {original_subject}
+RECIPIENT: {recipient}
+COMPANY: {company}
+ROLE: {role}
+
+RULES:
+- Keep it SHORT: 60-100 words maximum
+- Reference the original email briefly ("Following up on my email about...")
+- Add ONE new piece of value (a recent project, a relevant insight, or a specific idea for them)
+- Be respectful of their time
+- End with a soft call to action
+- No "just checking in" or "touching base" — add real value
+- Subject line: "Re: {original_subject}" (keep the thread)
+
+OUTPUT FORMAT:
+Subject: [subject line]
+Body: [email body]
+"""
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if api_key:
+        try:
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 300,
+                    },
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            result = _parse_generated_email(text, {"author_name": "", "company": company, "role": role})
+            if result:
+                return result
+        except Exception:
+            pass
+
+    # Fallback
+    return {
+        "subject": f"Re: {original_subject}",
+        "body": f"Hi,\n\nFollowing up on my previous email about the {role} position at {company}. I'd love to discuss how my experience aligns with what you're building.\n\nBest,\nVineet"
+    }
+
+
+def _auto_followup_worker():
+    """Background worker to send follow-ups for all overdue entries."""
+    global followup_worker_state
+    with _followup_lock:
+        if followup_worker_state["running"]:
+            return
+        followup_worker_state.update(running=True, current=0, total=0, succeeded=0, failed=0, results=[], error=None)
+
+    conn = None
+    run_id = None
+    try:
+        conn = init_db()
+        analysis = analyze_followups(conn)
+        overdue = [e for e in analysis.get("entries", []) if e.get("urgency") == "overdue"]
+
+        run_id = conn.execute(
+            "INSERT INTO worker_runs (worker_type, total) VALUES (?, ?)",
+            ("auto_followup", len(overdue))
+        ).lastrowid
+        conn.commit()
+
+        followup_worker_state["total"] = len(overdue)
+
+        for i, entry in enumerate(overdue):
+            if not followup_worker_state["running"]:
+                break
+
+            followup_worker_state["current"] = i + 1
+            outreach_id = entry["outreach_id"]
+            recipient = entry.get("recipient_email", "unknown")
+
+            try:
+                email = _generate_followup_email(conn, outreach_id)
+                if email:
+                    send_result = _send_email_smtp(recipient, email["subject"], email["body"])
+                    if send_result["status"] == "sent":
+                        record_followup(conn, outreach_id)
+                        followup_worker_state["succeeded"] += 1
+                        followup_worker_state["results"].append({"email": recipient, "status": "sent"})
+                    else:
+                        followup_worker_state["failed"] += 1
+                        followup_worker_state["results"].append({"email": recipient, "status": "failed", "error": send_result.get("error_message", "Send failed")})
+                else:
+                    followup_worker_state["failed"] += 1
+                    followup_worker_state["results"].append({"email": recipient, "status": "failed", "error": "generation failed"})
+            except Exception as e:
+                followup_worker_state["failed"] += 1
+                followup_worker_state["results"].append({"email": recipient, "status": "failed", "error": str(e)})
+
+            time.sleep(random.uniform(3, 8))
+
+    except Exception as e:
+        followup_worker_state["error"] = str(e)
+    finally:
+        if conn and run_id:
+            try:
+                conn.execute(
+                    "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=?, results=? WHERE id=?",
+                    ("completed", followup_worker_state["succeeded"], followup_worker_state["failed"],
+                     json.dumps(followup_worker_state.get("results", [])[-20:]), run_id)
+                )
+                conn.commit()
+            except Exception:
+                pass
+        followup_worker_state["running"] = False
+
+
+def start_auto_followup():
+    """Start the auto-followup worker in a background thread."""
+    if followup_worker_state["running"]:
+        return {"status": "already_running"}
+    t = threading.Thread(target=_auto_followup_worker, daemon=True)
+    t.start()
+    return {"status": "started", "total": followup_worker_state.get("total", 0)}
+
+
+def get_followup_worker_status():
+    return dict(followup_worker_state)
+
+
+def stop_followup_worker():
+    followup_worker_state["running"] = False
+    return {"status": "stopped"}
+
+
+def preview_followup(outreach_id):
+    """Generate a follow-up preview without sending."""
+    conn = init_db()
+    result = _generate_followup_email(conn, outreach_id)
+    return result or {"subject": "", "body": "Could not generate follow-up."}
+
+
+# ── Reply Classification ──────────────────────────────────────────────────────
+
+def _classify_reply(body: str, subject: str = "") -> str:
+    """Classify a reply as: interested, auto_reply, rejection, or info."""
+    body_lower = (body or "").lower()
+    subject_lower = (subject or "").lower()
+
+    # Auto-reply patterns
+    auto_patterns = [
+        "we have received your", "ticket has been created", "request received",
+        "auto-reply", "automatic reply", "out of office", "ooo",
+        "this is an automated", "do not reply", "no-reply",
+        "your request", "has been received", "currently experiencing",
+        "visit our career site", "apply on our website", "apply online",
+    ]
+    if any(p in body_lower for p in auto_patterns):
+        return "auto_reply"
+
+    # Rejection patterns
+    reject_patterns = [
+        "not hiring", "position has been filled", "no longer available",
+        "looking for more experience", "looking for 3", "looking for 4", "looking for 5",
+        "we are looking for", "unfortunately", "not a good fit",
+        "not suitable", "overqualified", "underqualified",
+        "onsite only", "onsite role", "full time onsite",
+        "not the right match", "moved forward with other",
+    ]
+    if any(p in body_lower for p in reject_patterns):
+        return "rejection"
+
+    # Interest patterns
+    interest_patterns = [
+        "interested", "relevant", "your background", "your experience",
+        "would like to", "let's connect", "let's schedule", "let's chat",
+        "send your cv", "send cv", "share your resume",
+        "open to work", "available", "join", "round",
+        "interview", "call", "discussion", "meet",
+        "keep you posted", "will reach out", "get back to you",
+        "impressive", "great fit", "perfect fit",
+    ]
+    if any(p in body_lower for p in interest_patterns):
+        return "interested"
+
+    return "info"
+
+
+# ── IMAP Reply Detection Worker ───────────────────────────────────────────────
+
+import imaplib
+import email as email_lib
+from email.header import decode_header
+
+IMAP_CONFIG = {
+    "host": os.getenv("IMAP_HOST", "imap.gmail.com"),
+    "port": int(os.getenv("IMAP_PORT", "993")),
+    "user": os.getenv("IMAP_USER", "") or os.getenv("SMTP_USER", ""),
+    "password": os.getenv("IMAP_PASSWORD", "") or os.getenv("SMTP_PASSWORD", ""),
+}
+
+imap_worker_state = {
+    "running": False,
+    "last_checked": None,
+    "replies_found": 0,
+    "total_checked": 0,
+    "error": None,
+}
+
+_imap_lock = threading.Lock()
+
+
+def _decode_header_value(value):
+    """Decode MIME encoded header."""
+    if not value:
+        return ""
+    decoded = decode_header(value)
+    parts = []
+    for part, charset in decoded:
+        if isinstance(part, bytes):
+            parts.append(part.decode(charset or "utf-8", errors="replace"))
+        else:
+            parts.append(part)
+    return " ".join(parts)
+
+
+def _imap_check_replies():
+    """Connect to IMAP, search for replies to sent outreach emails."""
+    conn = init_db()
+    run_id = conn.execute(
+        "INSERT INTO worker_runs (worker_type) VALUES (?)",
+        ("imap_check",)
+    ).lastrowid
+    conn.commit()
+
+    # Get all sent emails that haven't had replies detected
+    sent = conn.execute(
+        "SELECT eo.id, eo.recipient_email, eo.subject, eo.sent_at "
+        "FROM email_outreach eo "
+        "WHERE eo.status = 'sent' AND eo.reply_detected_at IS NULL "
+        "ORDER BY eo.sent_at DESC LIMIT 200"
+    ).fetchall()
+
+    if not sent:
+        return 0
+
+    # Build lookup: email -> list of outreach records
+    email_lookup = {}
+    for row in sent:
+        addr = (row["recipient_email"] or "").lower().strip()
+        if addr:
+            email_lookup.setdefault(addr, []).append(row)
+
+    if not email_lookup:
+        return 0
+
+    imap_user = IMAP_CONFIG["user"]
+    imap_pass = IMAP_CONFIG["password"]
+
+    if not imap_user or not imap_pass:
+        raise ValueError("IMAP credentials not configured (SMTP_USER/SMTP_PASSWORD)")
+
+    # Connect to IMAP
+    mail = imaplib.IMAP4_SSL(IMAP_CONFIG["host"], IMAP_CONFIG["port"])
+    mail.login(imap_user, imap_pass)
+    mail.select("INBOX", readonly=True)
+
+    replies_found = 0
+    total_checked = 0
+
+    try:
+        # Search for emails FROM any of our outreach recipients
+        for recipient_email, outreach_rows in email_lookup.items():
+            try:
+                # Search for emails from this sender
+                status, data = mail.search(None, f'(FROM "{recipient_email}")')
+                if status != "OK" or not data[0]:
+                    continue
+
+                msg_ids = data[0].split()
+                # Check most recent messages first
+                for msg_id in reversed(msg_ids[-10:]):  # last 10 from this sender
+                    total_checked += 1
+                    try:
+                        status, msg_data = mail.fetch(msg_id, "(RFC822)")
+                        if status != "OK" or not msg_data or not msg_data[0]:
+                            continue
+
+                        raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
+                        if not isinstance(raw, bytes):
+                            continue
+                        msg = email_lib.message_from_bytes(raw)
+
+                        from_addr = _decode_header_value(msg.get("From", "")).lower()
+                        subject = _decode_header_value(msg.get("Subject", ""))
+                        date_str = msg.get("Date", "")
+
+                        # Extract body preview
+                        body_preview = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() == "text/plain":
+                                    payload = part.get_payload(decode=True)
+                                    if payload:
+                                        body_preview = payload.decode("utf-8", errors="replace")[:300]
+                                    break
+                        else:
+                            payload = msg.get_payload(decode=True)
+                            if payload:
+                                body_preview = payload.decode("utf-8", errors="replace")[:300]
+
+                        # Match to outreach records
+                        for outreach in outreach_rows:
+                            outreach_subject = outreach["subject"] or ""
+                            # Match by: reply subject contains original subject, or from matches
+                            is_reply = (
+                                outreach_subject.lower() in subject.lower()
+                                or f"re: {outreach_subject.lower()}" in subject.lower()
+                                or subject.lower() in f"re: {outreach_subject.lower()}"
+                            )
+
+                            if is_reply or recipient_email in from_addr:
+                                # Check if this reply is after the sent date
+                                try:
+                                    from email.utils import parsedate_to_datetime
+                                    reply_dt = parsedate_to_datetime(date_str)
+                                    sent_at = outreach["sent_at"]
+                                    if sent_at and reply_dt.isoformat() < sent_at:
+                                        continue  # Reply is before we sent — not a response
+                                except Exception:
+                                    pass
+
+                                # Classify reply type
+                                reply_type = _classify_reply(body_preview, subject)
+
+                                # Record the reply
+                                conn.execute(
+                                    "UPDATE email_outreach SET reply_detected_at = datetime('now'), "
+                                    "reply_preview = ?, status = 'replied', reply_type = ? WHERE id = ? AND reply_detected_at IS NULL",
+                                    (body_preview[:300], reply_type, outreach["id"])
+                                )
+
+                                # Update pipeline stage
+                                lead = conn.execute(
+                                    "SELECT id, stage FROM pipeline_leads WHERE outreach_id = ?",
+                                    (outreach["id"],)
+                                ).fetchone()
+
+                                if lead and lead["stage"] == "applied" and reply_type != "auto_reply":
+                                    conn.execute(
+                                        "UPDATE pipeline_leads SET stage = 'replied', updated_at = datetime('now') WHERE id = ?",
+                                        (lead["id"],)
+                                    )
+                                    conn.execute(
+                                        "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                                        "VALUES (?, 'email_reply', ?, ?)",
+                                        (lead["id"],
+                                         f"Reply Detected ({reply_type})",
+                                         f"[{reply_type.upper()}] {body_preview[:150]}")
+                                    )
+
+                                conn.commit()
+                                replies_found += 1
+                                break  # Found reply for this outreach, move on
+
+                    except Exception:
+                        continue
+
+            except Exception:
+                continue
+
+        # ── Bounce Detection ──
+        # Search for mailer-daemon / delivery failure notifications
+        for search_query in ['FROM "mailer-daemon"', 'SUBJECT "Address not found"', 'SUBJECT "Delivery Status Notification"', 'SUBJECT "Undeliverable"']:
+            try:
+                status, data = mail.search(None, f'({search_query})')
+                if status != "OK" or not data[0]:
+                    continue
+                for msg_id in data[0].split()[-50:]:  # last 50
+                    try:
+                        status, msg_data = mail.fetch(msg_id, "(RFC822)")
+                        if status != "OK" or not msg_data or not msg_data[0]:
+                            continue
+                        raw = msg_data[0][1]
+                        if not isinstance(raw, bytes):
+                            continue
+                        msg = email_lib.message_from_bytes(raw)
+
+                        # Extract body to find failed address
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() == "text/plain":
+                                    payload = part.get_payload(decode=True)
+                                    if payload:
+                                        body = payload.decode("utf-8", errors="replace")
+                                    break
+                        else:
+                            payload = msg.get_payload(decode=True)
+                            if payload:
+                                body = payload.decode("utf-8", errors="replace")
+
+                        # Find email addresses in the bounce body
+                        bounced_emails = re.findall(r'[\w.+-]+@[\w.-]+\.\w{2,}', body)
+                        bounced_emails = [e.lower() for e in bounced_emails
+                                         if not any(x in e.lower() for x in ['google', 'postmaster', 'mailer-daemon', 'gmail-smtp', 'noreply'])]
+
+                        for bounced_addr in bounced_emails:
+                            # Check if this bounced address matches any of our sent emails
+                            outreach = conn.execute(
+                                "SELECT id FROM email_outreach WHERE recipient_email LIKE ? AND status = 'sent' AND error_type IS NULL LIMIT 1",
+                                (f"%{bounced_addr}%",)
+                            ).fetchone()
+                            if outreach:
+                                conn.execute(
+                                    "UPDATE email_outreach SET status='failed', error_type='bounced', "
+                                    "error_message=? WHERE id=?",
+                                    (f"Address not found: {bounced_addr}", outreach["id"])
+                                )
+                                conn.commit()
+                                replies_found += 1  # count bounces in the detection total
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+    finally:
+        try:
+            mail.close()
+            mail.logout()
+        except Exception:
+            pass
+
+    with _imap_lock:
+        imap_worker_state["last_checked"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        imap_worker_state["replies_found"] = replies_found
+        imap_worker_state["total_checked"] = total_checked
+
+    conn.execute(
+        "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=0, total=?, results=? WHERE id=?",
+        ("completed", replies_found, total_checked, json.dumps({"replies_found": replies_found, "total_checked": total_checked}), run_id)
+    )
+    conn.commit()
+
+    return replies_found
+
+
+def _imap_poll_worker(interval_minutes=5):
+    """Background thread: poll IMAP for replies every N minutes."""
+    with _imap_lock:
+        if imap_worker_state["running"]:
+            return
+        imap_worker_state["running"] = True
+        imap_worker_state["error"] = None
+
+    try:
+        while imap_worker_state["running"]:
+            try:
+                found = _imap_check_replies()
+                with _imap_lock:
+                    imap_worker_state["error"] = None
+            except Exception as e:
+                with _imap_lock:
+                    imap_worker_state["error"] = str(e)
+
+            # Sleep in small increments so we can stop quickly
+            for _ in range(interval_minutes * 60):
+                if not imap_worker_state["running"]:
+                    break
+                time.sleep(1)
+    finally:
+        with _imap_lock:
+            imap_worker_state["running"] = False
+
+
+def start_imap_polling(interval_minutes=5):
+    """Start IMAP polling in a background thread."""
+    if imap_worker_state["running"]:
+        return {"status": "already_running", **imap_worker_state}
+    t = threading.Thread(target=_imap_poll_worker, args=(interval_minutes,), daemon=True)
+    t.start()
+    return {"status": "started", "interval_minutes": interval_minutes}
+
+
+def stop_imap_polling():
+    """Stop the IMAP polling worker."""
+    imap_worker_state["running"] = False
+    return {"status": "stopped"}
+
+
+def check_replies_once():
+    """Run a single IMAP check (not polling, just one scan)."""
+    try:
+        found = _imap_check_replies()
+        return {"status": "ok", "replies_found": found, "last_checked": imap_worker_state.get("last_checked")}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def get_imap_status():
+    """Get current IMAP worker status."""
+    return dict(imap_worker_state)

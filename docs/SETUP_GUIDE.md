@@ -1,243 +1,391 @@
-# CareerKit Setup Guide
+# CareerKit -- Setup Guide
+
+> Step-by-step installation, configuration, and first run.
 
 ## Prerequisites
 
-- Python 3.11+
-- Node.js 18+ (for frontend dev)
-- Ollama (optional, for local LLM)
-- Gmail account with app password (for email outreach)
-- Gemini API key (free tier works)
+- **Python 3.11+** -- `python3 --version`
+- **Node.js 18+** and npm -- `node --version`
+- **Ollama** (optional) -- local LLM for job extraction and scoring
+- **Gmail account** with App Password -- required for email outreach features
+- **Google AI Studio account** -- for Gemini API (free tier sufficient)
 
-## Quick Start
+## Quick Start (5 minutes)
 
-### 1. Clone and setup
+```bash
+# 1. Clone
+git clone https://github.com/vineetkukreti/careerkit.git
+cd careerkit
+
+# 2. Python environment
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+
+# 3. Environment file
+mkdir -p config
+cp config/.env.example config/.env   # or create manually (see below)
+# Edit config/.env with your keys
+
+# 4. Frontend
+cd frontend-src && npm install && cd ..
+
+# 5. Launch
+./run.sh
+```
+
+Open http://localhost:5173 -- the onboarding wizard walks you through the rest.
+
+## Full Installation
+
+### 1. Clone and Python Setup
 
 ```bash
 git clone https://github.com/vineetkukreti/careerkit.git
 cd careerkit
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### 2. Configure secrets
+Python dependencies installed by `requirements.txt`:
 
-Create `config/.env`:
-```env
-GEMINI_API_KEY=your_gemini_api_key
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASSWORD=your_app_password
-FROM_EMAIL=your_email@gmail.com
-FROM_NAME=Your Name
-```
+| Package | Purpose |
+|---------|---------|
+| fastapi, uvicorn | Backend API server |
+| playwright | Browser automation (LinkedIn, Indeed, etc.) |
+| beautifulsoup4, lxml | HTML parsing for job boards |
+| requests | HTTP client for API-based scrapers |
+| google-genai | Gemini API client |
+| crawl4ai | Web crawling framework |
+| python-dotenv | Environment variable loading |
+| pandas, openpyxl | Data export (Excel/CSV) |
+| rich | CLI formatting |
+| python-multipart | File upload support |
+| dnspython | Email domain verification |
+| duckduckgo-search | DuckDuckGo search scraper |
+| googlesearch-python | Google search scraper |
 
-**Getting a Gmail App Password:**
-1. Go to https://myaccount.google.com/security
-2. Enable 2-Step Verification
-3. Go to App passwords → Generate one for "Mail"
-4. Use the 16-char password as `SMTP_PASSWORD`
-
-**Getting a Gemini API Key:**
-1. Go to https://aistudio.google.com/apikey
-2. Create a new API key
-3. Free tier: 15 RPM, sufficient for this tool
-
-### 3. Update your profile
-
-Edit `backend/config.py`:
-```python
-PROFILE = {
-    "name": "Your Name",
-    "experience_years": 2,
-    "current_title": "Your Title",
-    "email": "your_email@gmail.com",
-    "location": "Your Location",
-    ...
-}
-
-RESUME_SKILLS = {
-    "python": 3,
-    "your_skill": 4,
-    ...
-}
-
-TARGET_ROLES = ["Your Target Role 1", "Target Role 2"]
-```
-
-### 4. Launch
+After pip install, set up the browser:
 
 ```bash
-./run.sh           # Backend (8000) + Frontend (5173)
-./run.sh --prod    # Backend only, serves built frontend
-./run.sh --back    # Backend only
-./run.sh --front   # Frontend dev only
+playwright install chromium
 ```
 
-Open http://localhost:5173 (dev) or http://localhost:8000 (prod)
+This downloads a Chromium binary that Playwright uses for browser-based scraping and LinkedIn automation.
 
-### 5. First-time setup
+### 2. Environment Configuration
 
-The app shows an onboarding wizard on first visit:
-1. **Welcome** — Accept disclaimer, review features
-2. **Profile** — Enter your details (saved to backend)
-3. **LinkedIn** — Launch browser → Log in to LinkedIn → Verify
-4. **Done** — Ready to use
+Create `config/.env` with your secrets:
 
-### 6. (Optional) Local LLM with Ollama
+```env
+# --- LLM ---
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# --- Email (Gmail SMTP) ---
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=your_16_char_app_password
+FROM_EMAIL=you@gmail.com
+FROM_NAME=Your Name
+
+# --- Email Enrichment (optional) ---
+HUNTER_API_KEY=your_hunter_api_key
+```
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GEMINI_API_KEY` | Yes | -- | Google AI Studio API key for LLM features |
+| `SMTP_HOST` | No | `smtp.gmail.com` | SMTP server hostname |
+| `SMTP_PORT` | No | `587` | SMTP server port (TLS) |
+| `SMTP_USER` | Yes* | -- | Gmail address for sending emails |
+| `SMTP_PASSWORD` | Yes* | -- | Gmail App Password (not regular password) |
+| `FROM_EMAIL` | No | Same as SMTP_USER | Sender address shown in emails |
+| `FROM_NAME` | No | -- | Sender display name |
+| `HUNTER_API_KEY` | No | -- | Hunter.io API key for email finding |
+
+*Required only if you want email outreach features. The server starts without them but prints a warning.
+
+### 3. Frontend Setup
+
+```bash
+cd frontend-src
+npm install
+cd ..
+```
+
+Key frontend dependencies: React 19, Vite 8, Tailwind CSS 4, React Router 7, Lucide icons.
+
+**Development mode** -- Vite dev server on port 5173, proxies `/api` requests to backend on port 8000.
+
+**Production build** -- generates static files into `frontend/` directory, served directly by FastAPI:
+
+```bash
+cd frontend-src
+npm run build
+cd ..
+./run.sh --prod
+```
+
+### 4. Ollama Setup (Optional)
+
+Ollama provides a local LLM that CareerKit uses as its primary extraction engine. If unavailable, it falls back to the Gemini API automatically.
 
 ```bash
 # Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull the model
+# Pull the recommended model
 ollama pull qwen2.5:7b
 
-# Ollama runs on http://localhost:11434 automatically
-# CareerKit detects it and uses it as primary LLM
+# Verify it is running
+curl http://localhost:11434/api/tags
 ```
 
-If Ollama is not running, CareerKit falls back to Gemini API automatically.
+Ollama runs as a background service on port 11434. CareerKit detects it automatically on startup.
 
----
+### 5. LinkedIn Browser Setup
 
-## Daily Automation (Optional)
+CareerKit uses a persistent Playwright browser session for LinkedIn. First-time setup:
 
-### Cron setup for daily job applications
+**Option A: Through the app (recommended)**
+
+1. Start the application with `./run.sh`
+2. Open the app -- the onboarding wizard appears on first visit
+3. At the LinkedIn step, click "Launch Browser"
+4. Log in to LinkedIn in the browser window that opens
+5. The session is saved to `data/browser_profiles/`
+
+**Option B: Via script**
 
 ```bash
-# Edit crontab
+python scripts/login.py
+```
+
+This opens a Chromium window to linkedin.com/login. Log in manually. The script waits up to 5 minutes for you to reach the LinkedIn feed, then saves the session and exits.
+
+The browser session persists across restarts. Do not delete `data/browser_profiles/` unless you want to re-authenticate.
+
+### 6. Gmail App Password
+
+Gmail requires an App Password for SMTP access (regular passwords are blocked):
+
+1. Go to https://myaccount.google.com/security
+2. Enable **2-Step Verification** if not already on
+3. Go to https://myaccount.google.com/apppasswords
+4. Select app: "Mail", device: "Other" (enter "CareerKit")
+5. Click **Generate**
+6. Copy the 16-character password
+7. Paste it as `SMTP_PASSWORD` in `config/.env`
+
+### 7. Gemini API Key
+
+1. Go to https://aistudio.google.com/apikey
+2. Click **Create API key**
+3. Copy the key and set it as `GEMINI_API_KEY` in `config/.env`
+
+Free tier provides 15 requests per minute -- sufficient for normal use. CareerKit uses Gemini for email generation, job evaluation, resume tailoring, and interview prep.
+
+## Running the Application
+
+### Development Mode (default)
+
+```bash
+./run.sh
+```
+
+Starts backend on port 8000 and Vite dev server on port 5173 in parallel. Frontend hot-reloads on code changes. API calls from the frontend are proxied to the backend.
+
+- Frontend: http://localhost:5173
+- API: http://localhost:8000/api/db/stats
+
+### Production Mode
+
+```bash
+./run.sh --prod
+```
+
+Starts backend only. Serves pre-built frontend from `frontend/` directory. Use this after running `npm run build` in `frontend-src/`.
+
+- App: http://localhost:8000
+
+### Backend Only
+
+```bash
+./run.sh --back
+```
+
+Backend API server only, no frontend. Useful when developing the frontend separately.
+
+### Frontend Only
+
+```bash
+./run.sh --front
+```
+
+Vite dev server only. Requires the backend to already be running on port 8000.
+
+### Alternative: scripts/start.sh
+
+```bash
+./scripts/start.sh
+```
+
+Simpler startup script -- backend only, auto-installs dependencies, opens browser automatically. Suitable for quick production use.
+
+### Logs
+
+All logs write to `data/logs/`:
+
+```bash
+tail -f data/logs/backend.log
+tail -f data/logs/frontend.log
+```
+
+## Daily Automation
+
+### Cron Setup
+
+Use `scripts/daily_run.py` for scheduled job application cycles:
+
+```bash
 crontab -e
+```
 
-# Add these lines:
+Add:
 
+```cron
 # Daily job cycle at 8 AM on weekdays
 0 8 * * 1-5 cd /path/to/careerkit && ./venv/bin/python scripts/daily_run.py >> data/logs/daily.log 2>&1
-
-# Email enrichment every 2 hours
-0 */2 * * * cd /path/to/careerkit && ./venv/bin/bash scripts/run_email_finder.sh >> data/logs/email_finder.log 2>&1
 ```
 
-### Manual daily run
+### Manual Daily Run
 
 ```bash
-python scripts/daily_run.py --max 500          # Full cycle: scrape + apply
-python scripts/daily_run.py --max 100 --no-scrape  # Apply to existing jobs only
+# Full cycle: scrape all sources + apply to matching jobs
+python scripts/daily_run.py --max 500
+
+# Apply to existing jobs only (skip scraping)
+python scripts/daily_run.py --max 100 --no-scrape
 ```
 
----
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max N` | 500 | Maximum number of applications per run |
+| `--no-scrape` | false | Skip the scraping phase, apply to already-collected jobs |
 
-## Usage Guide
+## Verifying Everything Works
 
-### Scraping Jobs
+After installation, check each component:
 
-1. Go to **Scraper** page
-2. Ensure browser is connected (green status bar)
-3. Select sources (LinkedIn, RemoteOK, Greenhouse, etc.)
-4. Set max posts (default: 1000)
-5. Click **Start** — watch per-source progress in real-time
+- [ ] **Backend**: `curl http://localhost:8000/api/db/stats` -- should return JSON with database statistics
+- [ ] **Frontend**: open http://localhost:5173 -- should show the dashboard or onboarding wizard
+- [ ] **Browser**: go to Settings page, click "Launch Browser" -- Chromium window should appear
+- [ ] **Scraper**: run a small test scrape from the Scraper page (select 2-3 API sources, set max to 10)
+- [ ] **Email**: go to Settings page, send a test email to yourself
+- [ ] **Ollama**: `curl http://localhost:11434/api/tags` -- should list the qwen2.5:7b model
+- [ ] **Gemini**: use any AI Tool (Evaluate, Outreach, etc.) from the AI Tools page
 
-**Source types:**
-- **LinkedIn** — Requires browser login. Scrapes posts and jobs.
-- **API sources** — No browser needed. RemoteOK, Greenhouse, Lever, Ashby, etc.
-- **Browser sources** — Need browser. Indeed, Wellfound, Naukri, YC.
-- **HTML sources** — No browser. 60+ static job boards.
+## Production Deployment
 
-### Reviewing Posts
+### Running Behind nginx
 
-Go to **Posts** page to see all scraped content:
-- Filter by domain relevance (High/Medium/Low)
-- Filter by hiring status (Yes/Maybe/No)
-- Toggle "Has Email" to see outreach-ready posts
-- Click "Find Email" to enrich posts without emails
-- Use bulk email finder for batch enrichment
+```nginx
+server {
+    listen 80;
+    server_name careerkit.example.com;
 
-### Email Outreach
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;
+    }
+}
+```
 
-1. Go to **Email Outreach** page
-2. See stats: Ready / Not Generated / Drafts / Sent
-3. Click **Generate All** — Gemini creates personalized emails
-4. Review and edit drafts in the queue
-5. Click **Send All Drafts** or send individually
-6. Toggle "Attach Resume" before sending
-
-### Auto-Apply
-
-1. Go to **Auto-Apply** page
-2. Set target number of applications
-3. Click **Start** — engine applies to top-scoring jobs
-4. Watch progress: Applied / Failed / Skipped
-5. Daily quota prevents over-application
-
-### Pipeline (CRM)
-
-- **Kanban view** — Drag leads through stages
-- **List view** — Sortable table of all leads
-- Stages: Applied → Replied → Interviewing → Offer / Rejected
-- Click a lead for full timeline, notes, and email history
-- Use **Sync** to auto-create leads from sent emails
-
-### AI Tools
-
-5 tools powered by Gemini:
-- **Evaluate** — Paste a JD, get 7-part analysis with score
-- **Outreach** — Generate personalized cold email
-- **Deep Dive** — Research a company before applying
-- **Tailor CV** — ATS-optimized resume for specific JD
-- **Interview Prep** — Question banks and preparation guide
-
-### Analytics
-
-- **Follow-ups** — Which emails need follow-up (overdue/urgent/waiting)
-- **Patterns** — Response rates, best send times
-- **Conversion** — Rates by role, domain, company
-- **App History** — Full application log with CSV export
-
----
-
-## CLI Commands (Legacy)
-
-These still work for power users:
+Build the frontend first, then run in production mode:
 
 ```bash
-# Scrape posts
-python backend/post_parser.py                    # Target 1000 posts
-python backend/post_parser.py --jobs             # LinkedIn job listings
-python backend/post_parser.py --both             # Posts + jobs
-
-# Query database
-python backend/db.py --stats                     # Database statistics
-python backend/db.py --role "AI Engineer"        # Filter by role
-python backend/db.py --domain High --has-email   # Healthcare with emails
-python backend/db.py --outreach                  # Ready for outreach
-
-# Export/Import
-python backend/db.py --export jobs.xlsx          # Export to Excel
-python backend/db.py --import-excel file.xlsx    # Import legacy data
+cd frontend-src && npm run build && cd ..
+./run.sh --prod
 ```
 
----
+### systemd Service
+
+Create `/etc/systemd/system/careerkit.service`:
+
+```ini
+[Unit]
+Description=CareerKit Job Automation
+After=network.target
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/careerkit
+ExecStart=/path/to/careerkit/venv/bin/uvicorn backend.server:app --host 0.0.0.0 --port 8000
+Environment=PYTHONPATH=/path/to/careerkit/backend
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable careerkit
+sudo systemctl start careerkit
+```
+
+### Log Rotation
+
+Add to `/etc/logrotate.d/careerkit`:
+
+```
+/path/to/careerkit/data/logs/*.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+```
 
 ## Troubleshooting
 
-### Browser won't connect
-- CareerKit uses headed (visible) Playwright — a display is required
-- On Linux servers, use Xvfb: `xvfb-run ./run.sh`
-- Check port 8000 is free: `lsof -i :8000`
+### Browser will not connect
+- Playwright runs in headed (visible) mode -- a display is required
+- On headless Linux servers, use Xvfb: `xvfb-run ./run.sh`
+- Check that port 8000 is free: `lsof -i :8000`
 
 ### LinkedIn blocks scraping
-- Don't exceed 25 Easy Apply/day (safe zone: < 15)
-- Browser profile persists login — don't clear `data/browser_profiles/`
-- If blocked, wait 24 hours, then re-login via `scripts/login.py`
+- Stay under 25 Easy Apply per day (safe zone: under 15)
+- The browser profile persists login -- do not delete `data/browser_profiles/`
+- If blocked, wait 24 hours, then re-login via Settings or `python scripts/login.py`
 
 ### Emails not sending
-- Verify SMTP config: Settings page → Test Email
-- Gmail requires app password (not regular password)
-- Check `data/logs/` for error details
+- Verify SMTP config on the Settings page with the Test Email button
+- Gmail requires an App Password, not your regular account password
+- Check `data/logs/backend.log` for SMTP error details
 
 ### Ollama not detected
-- Ensure Ollama is running: `curl http://localhost:11434/api/tags`
-- Pull the model: `ollama pull qwen2.5:7b`
-- CareerKit auto-falls back to Gemini if Ollama is unavailable
+- Confirm Ollama is running: `curl http://localhost:11434/api/tags`
+- Pull the model if missing: `ollama pull qwen2.5:7b`
+- CareerKit automatically falls back to Gemini if Ollama is unreachable
 
 ### Port conflicts
-- `run.sh` auto-kills processes on ports 8000/5173
-- Or manually: `kill $(lsof -t -i:8000)`
+- `run.sh` auto-kills any process on ports 8000 and 5173 before starting
+- Manual kill: `kill $(lsof -t -i:8000)`
+
+## See Also
+
+- [Configuration Reference](CONFIGURATION.md) -- all config options in detail
+- [Architecture](ARCHITECTURE.md) -- system design and component interactions
+- [API Reference](API_REFERENCE.md) -- all REST endpoints
+- [Database Schema](DATABASE_SCHEMA.md) -- tables and relationships

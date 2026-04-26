@@ -1,227 +1,127 @@
-# LinkedIn Job Parser
+# CareerKit
 
-Automated LinkedIn scraper that finds AI/ML hiring posts, extracts structured job info using a local LLM, and stores everything in a SQLite database. Built for targeting **healthcare/medical/clinical AI** roles.
+Full-stack job hunting automation -- scrapes 140+ sources, LLM-powered extraction, smart scoring, auto-apply, and cold email outreach with a React dashboard.
 
-## Screenshots
+## What Is CareerKit?
 
-### Scraper Running
-![Scraper Running](screenshots/01_scraper_running.svg)
+- **Multi-source scraping** across 141 job boards, ATS platforms, and LinkedIn -- four engine types (API, HTML, Browser, LinkedIn) cover everything from RemoteOK to Greenhouse to regional boards in India, Japan, Europe, UAE, Singapore, and the US.
+- **LLM extraction chain** (Ollama local -> Gemini API -> regex fallback) turns unstructured post text into structured job records: role, company, location, experience, domain relevance.
+- **Auto-apply** handles LinkedIn Easy Apply end-to-end -- LLM-driven form filling, resume variant selection, daily quotas, and full application history.
+- **Cold email outreach** with AI-personalized emails, IMAP reply detection, follow-up automation, A/B testing, and send-time optimization.
+- **React dashboard** for pipeline tracking, analytics, skills intelligence, and AI tools (JD evaluation, company deep-dive, CV tailoring, interview prep).
+- Works fully offline with Ollama for LLM tasks. Gemini API is an optional fallback. Designed for a solo job seeker but extensible.
 
-### Results Table
-![Results Table](screenshots/02_results_table.svg)
+## Features
 
-### Session Summary
-![Session Summary](screenshots/03_session_summary.svg)
+| Category | What It Does |
+|----------|-------------|
+| **Job Discovery** | 141 sources across 4 engine types: API (RemoteOK, Himalayas, HN, Remotive, USAJobs), HTML (110+ boards via BeautifulSoup), Browser (Wellfound, YC, Indeed, Naukri via Playwright), LinkedIn (search, feed, hashtags, career links) |
+| **AI Extraction** | Three-tier LLM chain: Ollama (local, free) -> Gemini API (fallback) -> Regex (last resort). Extracts role, company, location, experience from raw post text |
+| **Smart Scoring** | 6-dimension fitness scoring: role match, skill overlap, experience fit, domain relevance, location, seniority. Configurable weights in profile |
+| **Auto-Apply** | LinkedIn Easy Apply automation with Playwright. LLM fills form fields, selects resume variants per job, enforces daily quotas, logs every application |
+| **Email Outreach** | AI-generated personalized cold emails via Gmail SMTP. IMAP reply detection, automated follow-ups, bulk send, A/B testing, send-time analytics |
+| **Pipeline Tracking** | Kanban board with stage management (Applied -> Interview -> Offer). Notes, lead detail views, sync from scraper results |
+| **Skills Intelligence** | Market demand analysis from scraped jobs, resume gap detection, skill trend tracking, industry news aggregation |
+| **AI Tools** | JD evaluation against your profile, company deep-dive research, CV tailoring suggestions, interview prep generation, outreach message drafting |
+| **Quality Dashboard** | Smart filter stats, address quality reports, email delivery analytics, conversion funnels, pattern analysis |
 
-### Database Stats (`python db.py --stats`)
-![DB Stats](screenshots/04_db_stats.svg)
+## Quick Start
 
-### Outreach Query (`python db.py --outreach`)
-![Outreach](screenshots/05_outreach_query.svg)
+```bash
+git clone https://github.com/vineetkukreti/coolkit.git
+cd coolkit
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+ollama pull qwen2.5:7b          # local LLM (4.7GB, optional but recommended)
+cp config/.env.example config/.env   # add your GEMINI_API_KEY, SMTP creds
+./run.sh                        # starts backend :8000 + frontend :5173
+```
 
-### LLM Extraction (Local Ollama)
-![LLM Extraction](screenshots/06_llm_extraction.svg)
+Other launch modes:
 
-## How It Works
+```bash
+./run.sh --prod    # backend only, serves built frontend
+./run.sh --back    # backend only
+./run.sh --front   # frontend dev server only
+```
+
+See the full [Setup Guide](docs/SETUP_GUIDE.md) for detailed configuration.
+
+## Architecture
 
 ```
-LinkedIn (Playwright) --> Scroll & Extract Posts --> Local LLM (Ollama) --> SQLite DB
-        |                        |                        |                    |
-   73 search queries      JS DOM extraction       qwen2.5:7b extracts    Deduped,
-   sorted by date         author, content,        role, company,         filtered,
-   healthcare-first       emails, URLs            location, experience   scored
+React SPA (:5173) --> /api proxy --> FastAPI (:8000) --> Playwright (browser automation)
+                                         |-----------> Ollama / Gemini (LLM extraction)
+                                         |-----------> SQLite (data/linkedin_jobs.db)
+                                         |-----------> Gmail SMTP/IMAP (email outreach)
 ```
 
-**Step by step:**
+- **Threading**: Dedicated browser thread (Playwright), daemon threads for scraping/email/auto-apply, thread-local SQLite connections.
+- **LLM chain**: Ollama (local, free, offline) -> Gemini API (cloud fallback) -> Regex (last resort).
+- **Frontend polling**: 2-5s intervals for real-time status updates. No WebSocket.
 
-1. Opens LinkedIn in Chromium using a persistent logged-in session
-2. Searches 73 keyword queries (healthcare AI first, then broader AI/ML)
-3. Scrolls through results, expands truncated posts, extracts data via JavaScript
-4. Sends each post to **Ollama (qwen2.5:7b)** running locally on GPU to extract:
-   - Role (mapped to: AI Engineer, ML Engineer, GenAI Engineer, Data Engineer, Data Scientist, Analyst)
-   - Company, Location, Experience (clean format: "2 years", "3-5 years")
-5. Scores **healthcare/medical/clinical domain relevance** (High / Medium / Low)
-6. Filters out irrelevant roles (Java, DevOps, QA, etc.) and bad experience fits (fresher-only, 6yr+ senior)
-7. Saves to SQLite with dedup -- re-runs only add new posts
+See the full [Architecture](docs/ARCHITECTURE.md) documentation.
 
 ## Project Structure
 
 ```
-linkedin-job-parser/
-  post_parser.py      # Main scraper -- searches LinkedIn, extracts, saves to DB
-  db.py               # SQLite layer -- insert, query, export, CLI tool
-  config.py           # User profile (name, email, resume skills)
-  login.py            # Manual LinkedIn login helper
-  extract_posts.js    # JavaScript injected into LinkedIn pages to grab post data
-  .env                # API keys (GEMINI_API_KEY for LLM fallback)
-  linkedin_jobs.db    # SQLite database (auto-created)
-  browser_session/    # Persistent Chromium profile (stays logged in)
-  venv/               # Python virtual environment
+coolkit/
+  backend/
+    server.py                 # FastAPI entry point, route registration
+    config.py                 # User profile, search keywords, scoring config
+    config_sources.py         # 141 source definitions (API, HTML, browser, custom)
+    db.py                     # SQLite schema, queries, thread-local connections
+    routes/                   # Thin route handlers (jobs, scraper, browser, posts,
+                              #   email, pipeline, leads, settings, tools, auto_apply,
+                              #   skills_intel)
+    services/                 # Business logic (scraper_service, email_service,
+                              #   auto_apply, smart_filter, resume_selector,
+                              #   quality_dashboard, referral_detector, skills_intel)
+    scrapers/                 # Scraping engines (linkedin_jobs, linkedin_posts,
+                              #   api_scrapers, web_scrapers, generic_scrapers)
+    extractors/               # LLM extraction pipeline (text, fitness, pipeline)
+    llm/                      # LLM client abstraction (Ollama + Gemini)
+    email_finder/             # Email discovery (enrichment, strategies, cron)
+  frontend-src/
+    src/
+      pages/                  # Dashboard, FindJobs, ApplyPage, OutreachPage,
+                              #   InsightsPage, Pipeline, AITools, SkillsIntelligence,
+                              #   Settings, LeadDetail, QualityDashboard
+      components/             # Sidebar, BrowserBar, ConnectGate, FilterBar, PageTabs
+      lib/api.js              # All API endpoint definitions
+  frontend/                   # Built static assets (served in production)
+  config/                     # .env file (secrets, API keys)
+  scripts/                    # Utility scripts (test sources, scraping tools)
+  data/                       # SQLite database, logs, scrape results
+  docs/                       # Full documentation
+  run.sh                      # Launch script (dev, prod, backend-only, frontend-only)
 ```
 
-## Setup
+## Documentation
 
-### Prerequisites
-
-- Python 3.11+
-- [Ollama](https://ollama.com/) installed and running
-- A LinkedIn account
-
-### Installation
-
-```bash
-# Clone and enter project
-cd linkedin-job-parser
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install playwright rich openpyxl python-dotenv google-genai
-playwright install chromium
-
-# Pull the local LLM model (4.7GB, runs on GPU)
-ollama pull qwen2.5:7b
-```
-
-### First-time LinkedIn Login
-
-```bash
-python login.py
-```
-
-This opens a browser window. Log in to LinkedIn manually. The session is saved in `browser_session/` and reused for all future runs.
-
-### Configure (optional)
-
-Create `.env` for Gemini API fallback (only used if Ollama is not running):
-
-```
-GEMINI_API_KEY=your_key_here
-```
-
-Edit `config.py` with your profile details.
-
-## Usage
-
-### Scrape LinkedIn Posts
-
-```bash
-# Default: scrape hiring posts (target: 1000, gets ~150-180 per session)
-python post_parser.py
-
-# Scrape LinkedIn job listings
-python post_parser.py --jobs
-
-# Both posts + jobs
-python post_parser.py --both
-
-# Custom target
-python post_parser.py --posts --max 500
-```
-
-### Query the Database
-
-```bash
-# Full statistics
-python db.py --stats
-
-# Filter by role
-python db.py --role "AI Engineer"
-
-# Healthcare posts with email addresses
-python db.py --domain High --has-email
-
-# Only confirmed hiring posts
-python db.py --hiring
-
-# Posts ready for email outreach (have email, not yet contacted)
-python db.py --outreach
-
-# Export to Excel
-python db.py --export jobs.xlsx
-
-# Export filtered subset
-python db.py --export healthcare_ai.xlsx --domain High --role "AI Engineer"
-
-# Import from old Excel file
-python db.py --import-excel linkedin_posts_20260409.xlsx
-```
-
-## Database Schema
-
-Three tables in `linkedin_jobs.db`:
-
-**`posts`** -- Scraped LinkedIn posts (deduped by URL + content hash)
-| Column | Description |
-|--------|-------------|
-| post_url | LinkedIn post URL (unique) |
-| content_hash | SHA-256 of first 200 chars (dedup fallback) |
-| author_name | Post author |
-| content | Full post text |
-| email | Extracted email addresses |
-| is_hiring | Boolean: hiring signals detected |
-| domain_relevance | High / Medium / Low (healthcare keyword score) |
-
-**`jobs`** -- Extracted job details (1:many per post)
-| Column | Description |
-|--------|-------------|
-| role | AI Engineer, ML Engineer, GenAI Engineer, Data Engineer, Data Scientist, Analyst |
-| company | Hiring company |
-| location | City/country/Remote |
-| experience | Clean format: "2 years", "3-5 years", "0 years (Fresher)" |
-
-**`email_outreach`** -- Cold email tracking (for future email sender)
-| Column | Description |
-|--------|-------------|
-| recipient_email | Contact email |
-| status | pending / sent / replied / bounced |
-| sent_at | Timestamp |
-
-## LLM Extraction
-
-**Primary: Ollama (local, free, offline)**
-- Model: `qwen2.5:7b` (4.7GB, runs on GPU)
-- Extracts role, company, location, experience from unstructured post text
-- ~1-2 seconds per post on RTX 4050
-
-**Fallback: Gemini 2.5 Flash-Lite (API)**
-- Only used when Ollama is not running
-- Cost: ~$0.01 per 200 posts
-- Requires `GEMINI_API_KEY` in `.env`
-
-**Last resort: Regex**
-- Keyword matching for roles, location patterns, experience patterns
-- No LLM needed, but lower accuracy
-
-## Fitness Filtering
-
-Posts are automatically filtered based on profile fit:
-
-| Filter | Action |
-|--------|--------|
-| Relevant roles (AI/ML/Data/NLP/GenAI) | Keep |
-| Irrelevant roles (Java, DevOps, QA, nurses, etc.) | Skip |
-| Fresher-only (0 years) | Skip |
-| Too senior (6+ years minimum) | Skip |
-| Everything else | Keep |
-
-## Run Daily for Best Results
-
-LinkedIn content search returns ~150-180 unique posts per session. To accumulate more, run daily -- the database dedup ensures re-runs only save new posts:
-
-```bash
-# Each run adds only new posts
-python post_parser.py
-python post_parser.py   # next day -- skips duplicates, saves new ones
-```
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/ARCHITECTURE.md) | System design, component interactions, threading model |
+| [API Reference](docs/API_REFERENCE.md) | All REST endpoints with request/response formats |
+| [Database Schema](docs/DATABASE_SCHEMA.md) | All tables, relationships, key queries |
+| [Services Reference](docs/SERVICES_REFERENCE.md) | Every service, function, and constant |
+| [Setup Guide](docs/SETUP_GUIDE.md) | Installation, configuration, first run |
+| [System Diagrams](docs/SYSTEM_DIAGRAMS.md) | Mermaid diagrams for all data flows |
+| [AI Context](docs/AI_CONTEXT.md) | Comprehensive context for AI assistants |
 
 ## Tech Stack
 
-- **Playwright** -- Browser automation (persistent Chromium session)
-- **Ollama + qwen2.5:7b** -- Local LLM for structured extraction
-- **SQLite** -- Zero-config database storage
-- **Rich** -- Terminal UI (tables, colors, progress)
-- **openpyxl** -- Excel export
-- **python-dotenv** -- Environment variable management
+| Layer | Technologies |
+|-------|-------------|
+| **Backend** | Python 3.11+, FastAPI, Uvicorn, Playwright, SQLite, Ollama, Google Gemini API, BeautifulSoup4, Pandas, Crawl4AI |
+| **Frontend** | React 19, Vite 8, TailwindCSS 4, React Router 7, Lucide React |
+| **Infrastructure** | Gmail SMTP/IMAP, DuckDuckGo Search, python-dotenv, Rich (CLI output) |
+
+## Contributing
+
+Contributions are welcome. Routes are thin wrappers -- business logic goes in `backend/services/`. Frontend uses React hooks and Context (Toast only), no Redux. Dark theme with purple accent (`#A855F7`).
+
+## License
+
+This project is licensed under [LICENSE] -- see the LICENSE file for details.
