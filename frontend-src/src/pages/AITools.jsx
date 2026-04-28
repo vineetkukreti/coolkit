@@ -119,14 +119,14 @@ function EvaluateTab() {
   const [result, setResult] = useState(null)
 
   const handleSubmit = async () => {
-    if (!jdText.trim()) return toast('Paste a job description first', 'warning')
+    if (!jdText.trim()) return toast({ title: 'Paste a job description first', type: 'warning' })
     setLoading(true)
     try {
       const res = await api.evaluateJob(jdText)
       setResult(res)
-      toast('Evaluation complete', 'success')
+      toast({ title: 'Evaluation complete', type: 'success' })
     } catch (e) {
-      toast(e.message || 'Evaluation failed', 'error')
+      toast({ title: e.message || 'Evaluation failed', type: 'error' })
     } finally {
       setLoading(false)
     }
@@ -235,14 +235,14 @@ function OutreachTab() {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   const handleSubmit = async () => {
-    if (!form.company.trim() || !form.role.trim()) return toast('Company and role are required', 'warning')
+    if (!form.company.trim() || !form.role.trim()) return toast({ title: 'Company and role are required', type: 'warning' })
     setLoading(true)
     try {
       const res = await api.generateOutreach(form)
       setResult(res)
-      toast('Messages generated', 'success')
+      toast({ title: 'Messages generated', type: 'success' })
     } catch (e) {
-      toast(e.message || 'Generation failed', 'error')
+      toast({ title: e.message || 'Generation failed', type: 'error' })
     } finally {
       setLoading(false)
     }
@@ -339,14 +339,14 @@ function DeepDiveTab() {
   const [result, setResult] = useState(null)
 
   const handleSubmit = async () => {
-    if (!form.company.trim()) return toast('Company name is required', 'warning')
+    if (!form.company.trim()) return toast({ title: 'Company name is required', type: 'warning' })
     setLoading(true)
     try {
       const res = await api.deepDive(form)
       setResult(res)
-      toast('Research complete', 'success')
+      toast({ title: 'Research complete', type: 'success' })
     } catch (e) {
-      toast(e.message || 'Research failed', 'error')
+      toast({ title: e.message || 'Research failed', type: 'error' })
     } finally {
       setLoading(false)
     }
@@ -425,14 +425,14 @@ function TailorCVTab() {
   const [result, setResult] = useState(null)
 
   const handleSubmit = async () => {
-    if (!jdText.trim()) return toast('Paste a job description first', 'warning')
+    if (!jdText.trim()) return toast({ title: 'Paste a job description first', type: 'warning' })
     setLoading(true)
     try {
       const res = await api.tailorCv(jdText)
       setResult(res)
-      toast('CV tailored', 'success')
+      toast({ title: 'CV tailored', type: 'success' })
     } catch (e) {
-      toast(e.message || 'Tailoring failed', 'error')
+      toast({ title: e.message || 'Tailoring failed', type: 'error' })
     } finally {
       setLoading(false)
     }
@@ -560,14 +560,14 @@ function InterviewPrepTab() {
   const [result, setResult] = useState(null)
 
   const handleSubmit = async () => {
-    if (!form.company.trim() || !form.role.trim()) return toast('Company and role are required', 'warning')
+    if (!form.company.trim() || !form.role.trim()) return toast({ title: 'Company and role are required', type: 'warning' })
     setLoading(true)
     try {
       const res = await api.interviewPrep(form)
       setResult(res)
-      toast('Prep ready', 'success')
+      toast({ title: 'Prep ready', type: 'success' })
     } catch (e) {
-      toast(e.message || 'Prep failed', 'error')
+      toast({ title: e.message || 'Prep failed', type: 'error' })
     } finally {
       setLoading(false)
     }

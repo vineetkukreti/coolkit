@@ -300,8 +300,9 @@ def score_job(
 
 # ─── Database Integration ───────────────────────────────────────────────────
 
-def score_and_update(conn: sqlite3.Connection, post_id: int) -> dict:
-    """Score a post and update its smart_score in the database."""
+def score_and_update(conn: sqlite3.Connection, post_id: int, batch: bool = False) -> dict:
+    """Score a post and update its smart_score in the database.
+    When batch=True, skips the commit (caller is responsible for committing)."""
     row = conn.execute(
         """SELECT p.content, p.domain_relevance, p.fit_score, p.post_url,
                   (SELECT j.role FROM jobs j WHERE j.post_id = p.id LIMIT 1) as role,
@@ -332,7 +333,8 @@ def score_and_update(conn: sqlite3.Connection, post_id: int) -> dict:
             "UPDATE posts SET smart_score = ? WHERE id = ?",
             (result["smart_score"], post_id),
         )
-        conn.commit()
+        if not batch:
+            conn.commit()
     except sqlite3.OperationalError:
         # Column might not exist yet — add it
         try:
@@ -341,7 +343,8 @@ def score_and_update(conn: sqlite3.Connection, post_id: int) -> dict:
                 "UPDATE posts SET smart_score = ? WHERE id = ?",
                 (result["smart_score"], post_id),
             )
-            conn.commit()
+            if not batch:
+                conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists, update failed for other reason
 
@@ -373,10 +376,12 @@ def score_all_unscored(conn: sqlite3.Connection, limit: int = 500) -> dict:
     verdicts = {"APPLY": 0, "CONSIDER": 0, "SKIP": 0}
 
     for row in rows:
-        result = score_and_update(conn, row["id"])
+        result = score_and_update(conn, row["id"], batch=True)
         if "error" not in result:
             scored += 1
             verdicts[result["verdict"]] += 1
+
+    conn.commit()
 
     return {
         "scored": scored,
@@ -409,7 +414,7 @@ def filter_unapplied(
                   (SELECT j4.experience FROM jobs j4 WHERE j4.post_id = p.id LIMIT 1) as experience
            FROM posts p
            WHERE p.is_hiring = 1
-             AND p.post_url NOT IN (SELECT job_url FROM applications)
+             AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_url = p.post_url)
              AND (p.smart_score IS NOT NULL AND p.smart_score >= ?)
            ORDER BY
              p.smart_score DESC,

@@ -26,6 +26,9 @@ scraper_state = {
 
 _scraper_lock = threading.Lock()
 
+# Limit concurrent browser scrapers to avoid resource exhaustion
+_browser_semaphore = threading.Semaphore(3)
+
 
 def _init_source_state():
     """Create a fresh per-source state dict."""
@@ -78,6 +81,7 @@ def _run_linkedin_scraper(max_posts, on_event):
             scraper_state["sources"]["linkedin"]["status"] = "error"
         return
 
+    conn = None
     try:
         conn = init_db()
         posts = scrape_posts(page, conn, max_posts=max_posts, on_event=on_event)
@@ -97,6 +101,9 @@ def _run_linkedin_scraper(max_posts, on_event):
         on_event({"type": "error", "message": str(e)[:300]})
         with _scraper_lock:
             scraper_state["sources"]["linkedin"]["status"] = "error"
+    finally:
+        if conn:
+            conn.close()
 
 
 def _run_api_scraper(source_name, scraper_fn, max_posts, on_event):
@@ -108,6 +115,7 @@ def _run_api_scraper(source_name, scraper_fn, max_posts, on_event):
         state["status"] = "running"
     on_event({"type": "info", "message": f"Starting {source_name} API scraper..."})
 
+    conn = None
     try:
         conn = init_db()
         posts = scraper_fn(None, conn, max_posts=max_posts, on_event=on_event)
@@ -127,6 +135,9 @@ def _run_api_scraper(source_name, scraper_fn, max_posts, on_event):
         on_event({"type": "error", "message": str(e)[:300]})
         with _scraper_lock:
             scraper_state["sources"][source_name]["status"] = "error"
+    finally:
+        if conn:
+            conn.close()
 
 
 def _run_web_scraper(source_name, scraper_fn, max_posts, on_event):
@@ -134,6 +145,7 @@ def _run_web_scraper(source_name, scraper_fn, max_posts, on_event):
 
     Uses headed mode with anti-detection (same as main browser) because
     headless Chromium gets blocked by DuckDuckGo, Wellfound, and YC.
+    Acquires _browser_semaphore to limit concurrent browser instances.
     """
     from playwright.sync_api import sync_playwright
     from db import insert_posts as _insert_posts
@@ -141,10 +153,14 @@ def _run_web_scraper(source_name, scraper_fn, max_posts, on_event):
     with _scraper_lock:
         state = scraper_state["sources"][source_name]
         state["status"] = "running"
+    on_event({"type": "info", "message": f"Starting {source_name} scraper (waiting for browser slot)..."})
+
+    _browser_semaphore.acquire()
     on_event({"type": "info", "message": f"Starting {source_name} scraper (launching browser)..."})
 
     pw = None
     browser = None
+    conn = None
     try:
         conn = init_db()
         pw = sync_playwright().start()
@@ -188,6 +204,9 @@ def _run_web_scraper(source_name, scraper_fn, max_posts, on_event):
         with _scraper_lock:
             scraper_state["sources"][source_name]["status"] = "error"
     finally:
+        _browser_semaphore.release()
+        if conn:
+            conn.close()
         try:
             if browser:
                 browser.close()
@@ -213,6 +232,7 @@ def _run_linkedin_feed_scraper(max_posts, on_event):
             scraper_state["sources"]["feed"]["status"] = "error"
         return
 
+    conn = None
     try:
         conn = init_db()
         posts = scrape_feed(page, conn, max_posts=max_posts, on_event=on_event)
@@ -226,6 +246,9 @@ def _run_linkedin_feed_scraper(max_posts, on_event):
         on_event({"type": "error", "message": str(e)[:300]})
         with _scraper_lock:
             scraper_state["sources"]["feed"]["status"] = "error"
+    finally:
+        if conn:
+            conn.close()
 
 
 def _run_linkedin_hashtag_scraper(max_posts, on_event):
@@ -244,6 +267,7 @@ def _run_linkedin_hashtag_scraper(max_posts, on_event):
             scraper_state["sources"]["hashtags"]["status"] = "error"
         return
 
+    conn = None
     try:
         conn = init_db()
         posts = scrape_hashtags(page, conn, max_posts=max_posts, on_event=on_event)
@@ -257,6 +281,9 @@ def _run_linkedin_hashtag_scraper(max_posts, on_event):
         on_event({"type": "error", "message": str(e)[:300]})
         with _scraper_lock:
             scraper_state["sources"]["hashtags"]["status"] = "error"
+    finally:
+        if conn:
+            conn.close()
 
 
 def _run_enricher(max_visits, on_event):
@@ -275,6 +302,7 @@ def _run_enricher(max_visits, on_event):
             scraper_state["sources"]["enricher"]["status"] = "error"
         return
 
+    conn = None
     try:
         conn = init_db()
         enriched = enrich_posts_with_profile_emails(page, conn, max_visits=max_visits, on_event=on_event)
@@ -286,6 +314,9 @@ def _run_enricher(max_visits, on_event):
         on_event({"type": "error", "message": str(e)[:300]})
         with _scraper_lock:
             scraper_state["sources"]["enricher"]["status"] = "error"
+    finally:
+        if conn:
+            conn.close()
 
 
 def _run_deep_fetcher(max_visits, on_event):
@@ -304,6 +335,7 @@ def _run_deep_fetcher(max_visits, on_event):
             scraper_state["sources"]["deepfetch"]["status"] = "error"
         return
 
+    conn = None
     try:
         conn = init_db()
         enriched = backfill_deep_extract(page, conn, max_visits=max_visits, on_event=on_event)
@@ -315,20 +347,29 @@ def _run_deep_fetcher(max_visits, on_event):
         on_event({"type": "error", "message": str(e)[:300]})
         with _scraper_lock:
             scraper_state["sources"]["deepfetch"]["status"] = "error"
+    finally:
+        if conn:
+            conn.close()
 
 
 def _run_career_link_scraper(source_name, max_visits, on_event):
-    """Run career link follower in its own browser — follows external links for emails."""
+    """Run career link follower in its own browser — follows external links for emails.
+    Acquires _browser_semaphore to limit concurrent browser instances.
+    """
     from playwright.sync_api import sync_playwright
     from scrapers.web_scrapers import follow_career_links
 
     with _scraper_lock:
         state = scraper_state["sources"][source_name]
         state["status"] = "running"
+    on_event({"type": "info", "message": "Starting career link follower (waiting for browser slot)..."})
+
+    _browser_semaphore.acquire()
     on_event({"type": "info", "message": "Starting career link follower..."})
 
     pw = None
     browser = None
+    conn = None
     try:
         conn = init_db()
         pw = sync_playwright().start()
@@ -355,6 +396,9 @@ def _run_career_link_scraper(source_name, max_visits, on_event):
         with _scraper_lock:
             scraper_state["sources"][source_name]["status"] = "error"
     finally:
+        _browser_semaphore.release()
+        if conn:
+            conn.close()
         try:
             if browser:
                 browser.close()
@@ -386,6 +430,12 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
 
     # Compute per-source budgets
     per_source = max(50, max_posts // len(sources)) if len(sources) > 1 else max_posts
+
+    # Create a shared DedupCache for cross-scraper deduplication (thread-safe)
+    from db import DedupCache
+    _shared_conn = init_db()
+    shared_dedup = DedupCache(_shared_conn)
+    _shared_conn.close()
 
     threads = []
 

@@ -68,6 +68,25 @@ def _is_blocked_email(email: str, company: str = "") -> bool:
 
 
 # ───────────────────────────────────────────────
+# Public wrappers for route access
+# ───────────────────────────────────────────────
+
+def generate_email(post_data: dict) -> dict:
+    """Public wrapper: generate personalized cold email using AI."""
+    return _generate_email_with_gemini(post_data)
+
+
+def send_email(to_email: str, subject: str, body: str, attach_resume: bool = False) -> dict:
+    """Public wrapper: send email via SMTP."""
+    return _send_email_smtp(to_email, subject, body, attach_resume=attach_resume)
+
+
+def is_email_blocked(email: str, company: str = "") -> bool:
+    """Public wrapper: check if email/company is on the blocklist."""
+    return _is_blocked_email(email, company)
+
+
+# ───────────────────────────────────────────────
 # Email generation agent (Gemini 2.5 Flash Lite)
 # ───────────────────────────────────────────────
 
@@ -253,7 +272,16 @@ def _generate_email_with_gemini(post_data: dict) -> dict:
         timeout=30,
     )
     resp.raise_for_status()
-    text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    data = resp.json()
+    candidates = data.get("candidates")
+    if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+        return {"subject": "", "body": "", "error": "Gemini returned no candidates"}
+    content = candidates[0].get("content")
+    if not content or not content.get("parts") or len(content["parts"]) == 0:
+        return {"subject": "", "body": "", "error": "Gemini response missing content parts"}
+    text = content["parts"][0].get("text", "")
+    if not text:
+        return {"subject": "", "body": "", "error": "Gemini returned empty text"}
 
     return _parse_generated_email(text, post_data)
 
@@ -355,7 +383,7 @@ def validate_email_before_send(email: str) -> dict:
     return {"valid": True, "reason": "ok"}
 
 
-def _send_email_smtp(to_email: str, subject: str, body: str, attach_resume: bool = False) -> dict:
+def _send_email_smtp(to_email: str, subject: str, body: str, attach_resume: bool = False, resume_path: str = "") -> dict:
     """Send email via SMTP (Gmail). Optionally attach resume PDF."""
     # Handle comma-separated addresses — send to first valid one
     if "," in to_email:
@@ -365,6 +393,10 @@ def _send_email_smtp(to_email: str, subject: str, body: str, attach_resume: bool
     cfg = SMTP_CONFIG
     if not cfg["password"]:
         raise ValueError("SMTP_PASSWORD not set in .env. Generate a Gmail App Password first.")
+
+    # Sanitize headers to prevent header injection
+    to_email = to_email.replace("\r", "").replace("\n", "")
+    subject = subject.replace("\r", "").replace("\n", "")
 
     msg = MIMEMultipart("mixed")
     msg["From"] = f"{cfg['from_name']} <{cfg['from_email']}>"
@@ -387,7 +419,7 @@ def _send_email_smtp(to_email: str, subject: str, body: str, attach_resume: bool
 
     # Attach resume PDF if requested
     if attach_resume:
-        resume_path = Path(PROFILE.get("resume_path", ""))
+        resume_path = Path(resume_path) if resume_path else Path(PROFILE.get("resume_path", ""))
         if resume_path.exists():
             with open(resume_path, "rb") as f:
                 pdf = MIMEApplication(f.read(), _subtype="pdf")
@@ -422,7 +454,7 @@ def send_email_with_resume(to_email: str, subject: str, body: str, resume_path: 
     if not check["valid"]:
         return {"success": False, "error": check["reason"]}
     try:
-        result = _send_email_smtp(to_email, subject, body, attach_resume=True)
+        result = _send_email_smtp(to_email, subject, body, attach_resume=True, resume_path=resume_path)
         if result["status"] == "sent":
             return {"success": True}
         return {"success": False, "error": result.get("error_message", "Send failed")[:300]}
@@ -852,7 +884,8 @@ def get_followup_worker_status():
 
 
 def stop_followup_worker():
-    followup_worker_state["running"] = False
+    with _followup_lock:
+        followup_worker_state["running"] = False
     return {"status": "stopped"}
 
 
@@ -984,7 +1017,7 @@ def _imap_check_replies():
         raise ValueError("IMAP credentials not configured (SMTP_USER/SMTP_PASSWORD)")
 
     # Connect to IMAP
-    mail = imaplib.IMAP4_SSL(IMAP_CONFIG["host"], IMAP_CONFIG["port"])
+    mail = imaplib.IMAP4_SSL(IMAP_CONFIG["host"], IMAP_CONFIG["port"], timeout=30)
     mail.login(imap_user, imap_pass)
     mail.select("INBOX", readonly=True)
 

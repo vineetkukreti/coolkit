@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import { ToastProvider } from './components/Toast'
+import ErrorBoundary from './components/ErrorBoundary'
 import BrowserBar from './components/BrowserBar'
-import ConnectGate, { useLinkedInStatus } from './components/ConnectGate'
+import { useLinkedInStatus } from './components/ConnectGate'
 import Dashboard from './pages/Dashboard'
 import FindJobs from './pages/FindJobs'
 import ApplyPage from './pages/ApplyPage'
@@ -47,7 +48,7 @@ function AppShell() {
           setShowSessionBanner(true)
         }
       }
-      // If running is false, we fall through to the hard gate below
+      // Browser fully stopped — BrowserBar handles reconnection
     }
 
     prevConnected.current = isConnected
@@ -71,45 +72,9 @@ function AppShell() {
     setBannerDismissed(true)
   }
 
-  // ── P0: Guard order — checking first ──────────────────────────────────────
-  if (checking) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-bg-primary">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 bg-accent rounded-lg flex items-center justify-center">
-            <span className="text-fg-inverse font-bold text-sm">JA</span>
-          </div>
-          <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-        </div>
-      </div>
-    )
-  }
-
-  // ── Hard gate: browser is completely dead ──────────────────────────────────
-  // Show ConnectGate when not connected AND it's not a soft session-expiry
-  // (soft expiry = running is still true, handled by the banner above)
-  const isHardDisconnect = !isConnected && !running
   const isSoftExpiry = !isConnected && running && !logged_in
 
-  if (!isConnected && !isSoftExpiry) {
-    // Hard gate — browser is stopped or unreachable
-    return (
-      <div className="flex min-h-screen">
-        {/* Minimal sidebar logo */}
-        <aside className="w-60 min-h-screen bg-bg-secondary border-r border-border flex flex-col px-4 py-6 shrink-0">
-          <div className="flex items-center gap-2.5 px-2">
-            <div className="w-9 h-9 bg-accent rounded-lg flex items-center justify-center">
-              <span className="text-fg-inverse font-bold text-sm">CK</span>
-            </div>
-            <span className="text-lg font-bold text-fg-primary">CareerKit</span>
-          </div>
-        </aside>
-        <ConnectGate wasConnected={wasEverConnected.current} />
-      </div>
-    )
-  }
-
-  // ── Full app (connected, or soft session expiry with banner) ──────────────
+  // ── Full app (always accessible — connect via BrowserBar when ready) ──────
   return (
     <div className="flex min-h-screen">
       <Sidebar />
@@ -175,8 +140,10 @@ function AppShell() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppShell />
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AppShell />
+      </ToastProvider>
+    </ErrorBoundary>
   )
 }

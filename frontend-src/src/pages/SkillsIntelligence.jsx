@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   BarChart3, Target, TrendingUp, Newspaper, Brain, RefreshCw, Loader2,
   Play, CheckCircle, AlertCircle, ExternalLink, Flame, ArrowUpRight,
@@ -59,26 +59,33 @@ function SkillsDemandTab() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  const pollRef = useRef(null)
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
+
   const handleAnalyze = async (useLlm = false) => {
     setAnalyzing(true)
     try {
       await api.analyzeSkills({ use_llm: useLlm, llm_sample_size: 100 })
       // Poll progress
-      const poll = setInterval(async () => {
+      pollRef.current = setInterval(async () => {
         try {
           const st = await api.getAnalysisStatus()
           setProgress(st)
           if (!st.running) {
-            clearInterval(poll)
+            clearInterval(pollRef.current)
+            pollRef.current = null
             setAnalyzing(false)
             setProgress(null)
             fetchData()
-            toast({ type: 'success', message: 'Skills analysis complete!' })
+            toast({ type: 'success', title: 'Skills analysis complete!' })
           }
-        } catch { clearInterval(poll); setAnalyzing(false) }
+        } catch { clearInterval(pollRef.current); pollRef.current = null; setAnalyzing(false) }
       }, 2000)
     } catch (e) {
-      toast({ type: 'error', message: e.message })
+      toast({ type: 'error', title: e.message })
       setAnalyzing(false)
     }
   }
@@ -395,10 +402,10 @@ function TrendingTab() {
     try {
       const d = await api.refreshSkillsTrends()
       setData(d)
-      if (d.has_data) toast({ type: 'success', message: 'Trends updated!' })
-      else toast({ type: 'error', message: d.message || 'Failed to fetch trends' })
+      if (d.has_data) toast({ type: 'success', title: 'Trends updated!' })
+      else toast({ type: 'error', title: d.message || 'Failed to fetch trends' })
     } catch (e) {
-      toast({ type: 'error', message: e.message })
+      toast({ type: 'error', title: e.message })
     } finally { setRefreshing(false) }
   }
 
@@ -492,10 +499,10 @@ function IndustryNewsTab() {
     try {
       const d = await api.refreshSkillsNews()
       setData(d)
-      if (d.has_data) toast({ type: 'success', message: 'News updated!' })
-      else toast({ type: 'error', message: d.message || 'Failed to fetch news' })
+      if (d.has_data) toast({ type: 'success', title: 'News updated!' })
+      else toast({ type: 'error', title: d.message || 'Failed to fetch news' })
     } catch (e) {
-      toast({ type: 'error', message: e.message })
+      toast({ type: 'error', title: e.message })
     } finally { setRefreshing(false) }
   }
 
@@ -597,7 +604,7 @@ export default function SkillsIntelligence() {
         top_gap: gaps?.top_gap || '--',
       })
     })
-  }, [tab])
+  }, [])
 
   return (
     <div className="flex flex-col h-full">

@@ -28,9 +28,6 @@ from datetime import datetime
 DB_PATH = Path("data/linkedin_jobs.db")
 
 SCHEMA = """
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
-
 CREATE TABLE IF NOT EXISTS posts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     post_url        TEXT,
@@ -65,7 +62,7 @@ CREATE TABLE IF NOT EXISTS email_outreach (
     recipient_email TEXT NOT NULL,
     subject         TEXT,
     body            TEXT,
-    status          TEXT DEFAULT 'pending',
+    status          TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'draft', 'sent', 'failed', 'replied', 'bounced')),
     sent_at         TEXT,
     created_at      TEXT DEFAULT (datetime('now'))
 );
@@ -79,7 +76,7 @@ CREATE TABLE IF NOT EXISTS pipeline_leads (
     role            TEXT,
     company         TEXT,
     location        TEXT,
-    stage           TEXT DEFAULT 'applied',
+    stage           TEXT DEFAULT 'applied' CHECK(stage IN ('applied', 'replied', 'interviewing', 'offer', 'rejected')),
     source          TEXT DEFAULT 'email',
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now'))
@@ -149,7 +146,7 @@ CREATE TABLE IF NOT EXISTS applications (
     job_title       TEXT,
     company         TEXT,
     location        TEXT,
-    status          TEXT DEFAULT 'pending',
+    status          TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'applied', 'failed', 'skipped')),
     apply_method    TEXT,
     error_message   TEXT,
     retry_count     INTEGER DEFAULT 0,
@@ -193,6 +190,11 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_outreach ON pipeline_leads(outreach_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_url ON applications(job_url);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 CREATE INDEX IF NOT EXISTS idx_applications_date ON applications(applied_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_post_id ON jobs(post_id);
+CREATE INDEX IF NOT EXISTS idx_posts_smart_score ON posts(smart_score) WHERE smart_score IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source);
+CREATE INDEX IF NOT EXISTS idx_applications_post_id ON applications(post_id);
+CREATE INDEX IF NOT EXISTS idx_email_outreach_recipient_status ON email_outreach(recipient_email, status);
 
 -- ─── Skills Intelligence ────────────────────────────────────────────────────
 
@@ -268,12 +270,8 @@ def _normalize_content(content: str) -> str:
 
 
 def content_hash(content: str) -> str:
-    return hashlib.sha256(content[:200].lower().encode()).hexdigest()
-
-
-def content_hash_v2(content: str) -> str:
-    """Stronger hash: normalized whitespace, more content."""
-    return hashlib.sha256(_normalize_content(content)[:500].encode()).hexdigest()
+    normalized = " ".join(content.lower().split())
+    return hashlib.sha256(normalized.encode()).hexdigest()
 
 
 _MIGRATIONS = [
@@ -286,6 +284,9 @@ _MIGRATIONS = [
     "ALTER TABLE jobs ADD COLUMN salary TEXT",
     "ALTER TABLE jobs ADD COLUMN tech_stack TEXT",
     "ALTER TABLE jobs ADD COLUMN fit_reasons TEXT",
+    # Email A/B testing columns
+    "ALTER TABLE email_outreach ADD COLUMN variant TEXT",
+    "ALTER TABLE email_outreach ADD COLUMN variant_strategy TEXT",
 ]
 
 
@@ -318,6 +319,11 @@ def init_db(db_path: str | Path | None = None) -> sqlite3.Connection:
     path = str(db_path or DB_PATH)
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # Set WAL mode only if not already set (avoids redundant writes)
+    mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    if mode.lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     run_migrations(conn)
     return conn
@@ -338,13 +344,19 @@ class DedupCache:
 
     Uses both post_url and content_hash for dedup. Also builds a set
     of normalized content prefixes to catch near-duplicates where only
-    whitespace or trailing text differs."""
+    whitespace or trailing text differs.
+
+    Thread-safe: .exists() and .add() are protected by an internal lock,
+    so a single DedupCache can be shared across multiple scraper threads.
+    """
 
     def __init__(self, conn: sqlite3.Connection):
+        import threading
+        self._lock = threading.Lock()
         self._urls = set()
         self._hashes = set()
         self._prefixes = set()  # normalized first-100-char prefixes
-        rows = conn.execute("SELECT post_url, content_hash, content FROM posts").fetchall()
+        rows = conn.execute("SELECT post_url, content_hash, SUBSTR(content, 1, 200) as content FROM posts").fetchall()
         for row in rows:
             if row["post_url"]:
                 self._urls.add(row["post_url"])
@@ -357,93 +369,110 @@ class DedupCache:
                     self._prefixes.add(prefix)
 
     def exists(self, post_url: str, c_hash: str, content: str = "") -> bool:
-        if post_url and post_url in self._urls:
-            return True
-        if c_hash in self._hashes:
-            return True
-        # Fuzzy fallback: normalized content prefix match
-        if content:
-            prefix = _normalize_content(content)[:100]
-            if len(prefix) >= 40 and prefix in self._prefixes:
+        with self._lock:
+            if post_url and post_url in self._urls:
                 return True
-        return False
+            if c_hash in self._hashes:
+                return True
+            # Fuzzy fallback: normalized content prefix match
+            if content:
+                prefix = _normalize_content(content)[:100]
+                if len(prefix) >= 40 and prefix in self._prefixes:
+                    return True
+            return False
 
     def add(self, post_url: str, c_hash: str, content: str = ""):
         """Register a newly inserted post so it's deduped within the same session."""
-        if post_url:
-            self._urls.add(post_url)
-        if c_hash:
-            self._hashes.add(c_hash)
-        if content:
-            prefix = _normalize_content(content)[:100]
-            if len(prefix) >= 40:
-                self._prefixes.add(prefix)
+        with self._lock:
+            if post_url:
+                self._urls.add(post_url)
+            if c_hash:
+                self._hashes.add(c_hash)
+            if content:
+                prefix = _normalize_content(content)[:100]
+                if len(prefix) >= 40:
+                    self._prefixes.add(prefix)
 
     @property
     def size(self) -> int:
-        return len(self._urls) + len(self._hashes)
+        with self._lock:
+            return len(self._urls) + len(self._hashes)
 
 
 def insert_post(conn: sqlite3.Connection, post: dict) -> int | None:
-    """Insert a single post. Returns post id or None if duplicate."""
+    """Insert a single post. Returns post id or None if duplicate.
+    Uses BEGIN IMMEDIATE to prevent check-then-insert race conditions."""
     c_hash = content_hash(post.get("content", ""))
     post_url = post.get("post_url", "")
-
-    if post_exists(conn, post_url, c_hash):
-        return None
 
     content = post.get("content", "")
     links = extract_links(content)
 
-    cur = conn.execute(
-        """INSERT INTO posts
-           (post_url, content_hash, author_name, author_profile, author_headline,
-            content, links, email, post_date, keyword_matched, is_hiring, domain_relevance,
-            full_content, apply_url, deep_extracted, fit_score, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            post_url or None,
-            c_hash,
-            post.get("author_name", ""),
-            post.get("author_profile", ""),
-            post.get("author_headline", ""),
-            content,
-            links or None,
-            post.get("email", ""),
-            post.get("post_date", ""),
-            post.get("keyword_matched", ""),
-            1 if post.get("is_hiring") else 0,
-            post.get("domain_relevance", "Low"),
-            post.get("full_content") or None,
-            post.get("apply_url") or None,
-            1 if post.get("deep_extracted") else 0,
-            post.get("fit_score"),
-            post.get("source", "linkedin"),
-        ),
-    )
-    post_id = cur.lastrowid
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if post_exists(conn, post_url, c_hash):
+            conn.execute("ROLLBACK")
+            return None
 
-    # Split comma-separated roles into individual job rows
-    roles_str = post.get("role_hiring_for", "Not specified")
-    roles = [r.strip() for r in roles_str.split(",") if r.strip() and r.strip() != "Not specified"]
-    if not roles:
-        roles = [roles_str]
-
-    for role in roles:
-        conn.execute(
-            """INSERT INTO jobs (post_id, role, company, location, experience, salary, tech_stack, fit_reasons)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO posts
+               (post_url, content_hash, author_name, author_profile, author_headline,
+                content, links, email, post_date, keyword_matched, is_hiring, domain_relevance,
+                full_content, apply_url, deep_extracted, fit_score, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                post_id,
-                role,
-                post.get("company", ""),
-                post.get("location", ""),
-                post.get("experience", ""),
-                post.get("salary") or None,
-                post.get("tech_stack") or None,
-                post.get("fit_reasons") or None,
+                post_url or None,
+                c_hash,
+                post.get("author_name", ""),
+                post.get("author_profile", ""),
+                post.get("author_headline", ""),
+                content,
+                links or None,
+                post.get("email", ""),
+                post.get("post_date", ""),
+                post.get("keyword_matched", ""),
+                1 if post.get("is_hiring") else 0,
+                post.get("domain_relevance", "Low"),
+                post.get("full_content") or None,
+                post.get("apply_url") or None,
+                1 if post.get("deep_extracted") else 0,
+                post.get("fit_score"),
+                post.get("source", "linkedin"),
             ),
         )
+
+        if cur.rowcount == 0:
+            conn.execute("ROLLBACK")
+            return None
+
+        post_id = cur.lastrowid
+
+        # Split comma-separated roles into individual job rows
+        roles_str = post.get("role_hiring_for", "Not specified")
+        roles = [r.strip() for r in roles_str.split(",") if r.strip() and r.strip() != "Not specified"]
+        if not roles:
+            roles = [roles_str]
+
+        for role in roles:
+            conn.execute(
+                """INSERT INTO jobs (post_id, role, company, location, experience, salary, tech_stack, fit_reasons)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    post_id,
+                    role,
+                    post.get("company", ""),
+                    post.get("location", ""),
+                    post.get("experience", ""),
+                    post.get("salary") or None,
+                    post.get("tech_stack") or None,
+                    post.get("fit_reasons") or None,
+                ),
+            )
+
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
     return post_id
 
@@ -614,7 +643,7 @@ def get_application_stats(conn: sqlite3.Connection) -> dict:
 # ─── Daily Quota Tracking ────────────────────────────────────────────────────
 
 def _today() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+    return datetime.utcnow().strftime("%Y-%m-%d")
 
 
 def _ensure_quota(conn: sqlite3.Connection):
@@ -662,7 +691,7 @@ def get_unapplied_jobs(conn: sqlite3.Connection, limit: int = 600) -> list[dict]
                   (SELECT j4.experience FROM jobs j4 WHERE j4.post_id = p.id LIMIT 1) as experience
            FROM posts p
            WHERE p.is_hiring = 1
-             AND p.post_url NOT IN (SELECT job_url FROM applications)
+             AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_url = p.post_url)
            ORDER BY
              p.smart_score DESC NULLS LAST,
              p.fit_score DESC NULLS LAST,
@@ -852,7 +881,7 @@ def import_excel(conn: sqlite3.Connection, xlsx_path: str) -> tuple[int, int]:
         is_hiring_bool = is_hiring_val.lower() == "yes" if is_hiring_val else is_hiring_post(content)
 
         domain = get(row, "Domain Relevance", "Domain")
-        if not domain or domain in ("", "Low", "Medium", "High") == False:
+        if not domain or domain not in ("High", "Medium", "Low"):
             domain = score_domain_relevance(content)
 
         posts.append({

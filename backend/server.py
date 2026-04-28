@@ -28,7 +28,7 @@ app = FastAPI(title="CareerKit")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:8000", "http://127.0.0.1:5173", "http://127.0.0.1:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,6 +61,7 @@ from routes.settings import router as settings_router
 from routes.tools import router as tools_router
 from routes.auto_apply import router as auto_apply_router
 from routes.skills_intel import router as skills_intel_router
+from routes.orchestrator import router as orchestrator_router
 
 app.include_router(jobs_router)
 app.include_router(browser_router)
@@ -73,6 +74,7 @@ app.include_router(settings_router)
 app.include_router(tools_router)
 app.include_router(auto_apply_router)
 app.include_router(skills_intel_router)
+app.include_router(orchestrator_router)
 
 # ───────────────────────────────────────────────
 # Auto-start IMAP reply polling on startup
@@ -92,6 +94,31 @@ def _start_imap_polling():
             print("[IMAP] Skipped — no SMTP credentials configured")
     except Exception as e:
         print(f"[IMAP] Failed to start: {e}")
+
+# ───────────────────────────────────────────────
+# Graceful shutdown for background workers
+# ───────────────────────────────────────────────
+
+@app.on_event("shutdown")
+def shutdown_event():
+    from services.scraper_service import scraper_state
+    from services.auto_apply import stop_auto_apply
+    from services.email_service import stop_imap_polling, stop_followup_worker
+
+    # Signal all workers to stop
+    scraper_state["running"] = False
+    try:
+        stop_auto_apply()
+    except:
+        pass
+    try:
+        stop_imap_polling()
+    except:
+        pass
+    try:
+        stop_followup_worker()
+    except:
+        pass
 
 # ───────────────────────────────────────────────
 # Serve frontend (must be last — catches all paths)

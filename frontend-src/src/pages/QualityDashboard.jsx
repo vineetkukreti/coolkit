@@ -46,6 +46,7 @@ export default function QualityDashboard() {
   const [abStats, setAbStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [scoring, setScoring] = useState(false)
+  const [topJobs, setTopJobs] = useState([])
 
   const fetchAll = async () => {
     setLoading(true)
@@ -58,6 +59,7 @@ export default function QualityDashboard() {
       setData(dash)
       setFilterStats(filter)
       setAbStats(ab)
+      api.getSmartFilterTop().then(d => setTopJobs(d.jobs || d.posts || [])).catch(() => {})
     } catch (e) {
       console.error('Dashboard fetch error:', e)
     }
@@ -243,6 +245,37 @@ export default function QualityDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Top Smart-Filtered Jobs */}
+      {topJobs.length > 0 && (
+        <div className="bg-bg-secondary border border-border rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-fg-primary mb-4 flex items-center gap-2">
+            <Target size={16} className="text-accent" />
+            Top Unapplied Jobs
+          </h3>
+          <div className="space-y-2">
+            {topJobs.slice(0, 10).map((job, i) => (
+              <div key={job.id || i} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-bg-tertiary/50 hover:bg-bg-tertiary transition-colors">
+                <span className="text-xs font-bold text-accent w-6 text-center">#{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-fg-primary font-medium truncate">{job.title || job.role || 'Unknown'}</p>
+                  <p className="text-xs text-fg-muted truncate">{job.company || '—'} {job.location ? `· ${job.location}` : ''}</p>
+                </div>
+                <span className={`text-sm font-bold font-mono ${
+                  (job.smart_score || job.score || 0) >= 7 ? 'text-yellow-400' :
+                  (job.smart_score || job.score || 0) >= 5 ? 'text-accent' :
+                  'text-fg-muted'
+                }`}>
+                  {(job.smart_score || job.score || 0).toFixed(1)}
+                </span>
+                {job.url && (
+                  <a href={job.url} target="_blank" rel="noreferrer" className="text-xs text-accent hover:underline shrink-0">View</a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

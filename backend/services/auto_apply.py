@@ -852,6 +852,20 @@ class AutoApplyEngine:
             error_message=result.get("error"),
         )
 
+        # CSV backup via logger service
+        try:
+            from services.logger import log_application as csv_log
+            csv_log(
+                platform=job.get("source", "unknown"),
+                title=job.get("role", ""),
+                company=job.get("company", ""),
+                location=job.get("location", ""),
+                url=url,
+                status=result["status"],
+            )
+        except Exception:
+            pass  # CSV backup is optional
+
         # Update counters
         self._applied_urls.add(url)
         self._platform_counts[method] = self._platform_counts.get(method, 0) + 1
@@ -943,18 +957,25 @@ class AutoApplyEngine:
 
 def start_auto_apply(max_applications: int = 500):
     """Start auto-apply in a background thread."""
-    if auto_apply_state["running"]:
-        return {"error": "Auto-apply already running"}
+    with _apply_lock:
+        if auto_apply_state["running"]:
+            return {"error": "Auto-apply already running"}
+        auto_apply_state["running"] = True
 
     from services.browser_service import browser_state
 
-    conn = init_db()
     page = browser_state.get("page")
-    engine = AutoApplyEngine(conn, page=page)
+
+    def _auto_apply_thread():
+        conn = init_db()
+        engine = AutoApplyEngine(conn, page=page)
+        try:
+            engine.run(max_applications)
+        finally:
+            conn.close()
 
     t = threading.Thread(
-        target=engine.run,
-        args=(max_applications,),
+        target=_auto_apply_thread,
         daemon=True,
     )
     t.start()

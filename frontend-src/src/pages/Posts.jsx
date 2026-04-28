@@ -108,7 +108,7 @@ function Select({ value, onChange, options }) {
   );
 }
 
-function PostViewModal({ post, onClose }) {
+function PostViewModal({ post, onClose, onEmailFound }) {
   if (!post) return null;
 
   return (
@@ -155,7 +155,7 @@ function PostViewModal({ post, onClose }) {
               {post.email}
             </span>
           ) : (
-            <FindEmailBtn postId={post.id} onFound={(email) => { post.email = email }} />
+            <FindEmailBtn postId={post.id} onFound={(email) => { onEmailFound(post.id, email); }} />
           )}
         </div>
 
@@ -188,7 +188,7 @@ function PostViewModal({ post, onClose }) {
           {post.email ? (
             <EmailButton post={post} />
           ) : (
-            <FindEmailBtn postId={post.id} onFound={(email) => { post.email = email }} />
+            <FindEmailBtn postId={post.id} onFound={(email) => { onEmailFound(post.id, email); }} />
           )}
         </div>
       </div>
@@ -225,8 +225,7 @@ function FindEmailBtn({ postId, onFound }) {
     setFinding(true);
     setResult(null);
     try {
-      const res = await fetch(`/api/db/posts/${postId}/find-email`, { method: "POST" });
-      const data = await res.json();
+      const data = await api.findEmailForPost(postId);
       setResult(data);
       if (data.saved && onFound) onFound(data.saved);
     } catch (err) {
@@ -614,16 +613,11 @@ export default function Posts() {
 
   const startBulkFind = async () => {
     try {
-      await fetch("/api/leads/enrich/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_leads: 500, target: "posts" }),
-      });
+      await api.startEnrichment({ max_leads: 500, target: "posts" });
       setBulkRunning(true);
       bulkPollRef.current = setInterval(async () => {
         try {
-          const res = await fetch("/api/leads/enrich/status");
-          const data = await res.json();
+          const data = await api.getEnrichmentStatus();
           setBulkStatus(data);
           if (!data.running && data.summary) {
             clearInterval(bulkPollRef.current);
@@ -644,7 +638,7 @@ export default function Posts() {
   };
 
   const stopBulkFind = async () => {
-    await fetch("/api/leads/enrich/stop", { method: "POST" });
+    await api.stopEnrichment();
     if (bulkPollRef.current) clearInterval(bulkPollRef.current);
     bulkPollRef.current = null;
     setBulkRunning(false);
@@ -655,15 +649,13 @@ export default function Posts() {
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch("/api/leads/enrich/status");
-        const data = await res.json();
+        const data = await api.getEnrichmentStatus();
         if (data.running && data.target === "posts") {
           setBulkRunning(true);
           setBulkStatus(data);
           bulkPollRef.current = setInterval(async () => {
             try {
-              const r = await fetch("/api/leads/enrich/status");
-              const d = await r.json();
+              const d = await api.getEnrichmentStatus();
               setBulkStatus(d);
               if (!d.running) {
                 clearInterval(bulkPollRef.current);
@@ -999,7 +991,7 @@ export default function Posts() {
 
       {/* Post view modal */}
       {viewPost && (
-        <PostViewModal post={viewPost} onClose={() => setViewPost(null)} />
+        <PostViewModal post={viewPost} onClose={() => setViewPost(null)} onEmailFound={(postId, email) => setPosts(prev => prev.map(p => p.id === postId ? { ...p, email } : p))} />
       )}
     </div>
   );

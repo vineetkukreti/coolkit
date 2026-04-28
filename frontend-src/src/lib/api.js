@@ -1,8 +1,12 @@
 const BASE = '/api'
 
 async function request(path, options = {}) {
+  const headers = { ...options.headers }
+  if (options.body) {
+    headers['Content-Type'] = 'application/json'
+  }
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers,
     ...options,
   })
   if (!res.ok) {
@@ -159,9 +163,46 @@ export const api = {
   uploadVariantResume: (variantName, file) => {
     const form = new FormData()
     form.append('file', file)
-    return fetch(`/api/resumes/variants/${variantName}/upload`, { method: 'POST', body: form }).then(r => r.json())
+    return fetch(`/api/resumes/variants/${variantName}/upload`, { method: 'POST', body: form })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }))
+          throw new Error(err.detail || 'Upload failed')
+        }
+        return res.json()
+      })
   },
   testResumeSelection: (data) => request('/resumes/test-selection', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Lead Enrichment
+  startEnrichment: (data = {}) => request('/leads/enrich/start', { method: 'POST', body: JSON.stringify(data) }),
+  getEnrichmentStatus: () => request('/leads/enrich/status'),
+  stopEnrichment: () => request('/leads/enrich/stop', { method: 'POST' }),
+  enrichSingleLead: (id) => request(`/leads/enrich/single/${id}`, { method: 'POST' }),
+
+  // Bounce Detection
+  checkBounces: () => request('/email/check-bounces', { method: 'POST' }),
+
+  // Smart Filter – Individual Scoring
+  smartFilterScore: (data) => request('/smart-filter/score', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Liveness Check
+  livenessCheck: (data) => request('/liveness/check', { method: 'POST', body: JSON.stringify(data) }),
+  livenessScan: () => request('/liveness/scan', { method: 'POST' }),
+
+  // Resume Selection
+  selectResume: (data) => request('/resumes/select', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Orchestrator – Daily Cycle
+  startDailyCycle: (data = {}) => request('/orchestrator/start', { method: 'POST', body: JSON.stringify(data) }),
+  stopDailyCycle: () => request('/orchestrator/stop', { method: 'POST' }),
+  getOrchestratorStatus: () => request('/orchestrator/status'),
+
+  // Application Export
+  exportApplications: () => fetch('/api/applications/export').then(res => {
+    if (!res.ok) throw new Error('Export failed')
+    return res.blob()
+  }),
 
   // Skills Intelligence
   getSkillsDashboard: () => request('/skills/dashboard'),

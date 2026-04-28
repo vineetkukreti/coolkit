@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Send, Mail, Database, Target, Zap, RefreshCw, Search,
   Wifi, WifiOff, LayoutDashboard, BarChart3, ChevronDown,
-  TrendingUp, AlertTriangle, Lightbulb,
+  TrendingUp, AlertTriangle, Lightbulb, Play, Square, Loader2,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useToast } from '../components/Toast'
@@ -75,6 +75,127 @@ function StatCard({ label, icon: Icon, value, sub }) {
   )
 }
 
+
+// ─── Daily Cycle Card ─────────────────────────────────────────────────────────
+
+function DailyCycleCard() {
+  const { toast } = useToast()
+  const [status, setStatus] = useState(null)
+  const [maxApps, setMaxApps] = useState(500)
+  const [runScrapers, setRunScrapers] = useState(true)
+  const [starting, setStarting] = useState(false)
+  const pollRef = useRef(null)
+  const logEndRef = useRef(null)
+
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const data = await api.getOrchestratorStatus()
+        setStatus(data)
+      } catch {}
+    }
+    poll()
+    pollRef.current = setInterval(poll, 2000)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
+
+  useEffect(() => {
+    if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' })
+  }, [status?.log?.length])
+
+  const isRunning = status?.running
+  const logs = status?.log || []
+
+  const handleStart = async () => {
+    setStarting(true)
+    try {
+      await api.startDailyCycle({ max_applications: maxApps, run_scrapers: runScrapers })
+      toast({ title: 'Daily cycle started', type: 'success', description: `Target: ${maxApps} applications` })
+    } catch (e) {
+      toast({ title: 'Failed to start', description: e.message, type: 'error' })
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const handleStop = async () => {
+    try {
+      await api.stopDailyCycle()
+      toast({ title: 'Stopping daily cycle...', type: 'info' })
+    } catch {}
+  }
+
+  const phaseLabel = {
+    scraping: 'Scraping',
+    scoring: 'Scoring',
+    applying: 'Applying',
+    reporting: 'Reporting',
+  }
+
+  return (
+    <div className="bg-bg-secondary border border-border rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-fg-primary">Daily Cycle</h2>
+        {isRunning && status?.phase && (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-accent-bg text-accent">
+            <Loader2 size={10} className="animate-spin" />
+            {phaseLabel[status.phase] || status.phase}
+          </span>
+        )}
+        {status?.status === 'done' && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-bg text-success">Done</span>
+        )}
+        {status?.status === 'error' && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-danger-bg text-danger">Error</span>
+        )}
+      </div>
+
+      {!isRunning ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-fg-muted">Max apps:</label>
+            <input type="number" min={10} max={2000} value={maxApps}
+              onChange={e => setMaxApps(Number(e.target.value) || 500)}
+              className="w-20 bg-bg-tertiary border border-border text-fg-primary text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent" />
+            <label className="flex items-center gap-1.5 text-xs text-fg-muted cursor-pointer">
+              <input type="checkbox" checked={runScrapers} onChange={e => setRunScrapers(e.target.checked)}
+                className="rounded border-border" />
+              Run scrapers
+            </label>
+          </div>
+          <button onClick={handleStart} disabled={starting}
+            className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent/90 text-white text-sm font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50">
+            {starting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            Run Daily Cycle
+          </button>
+        </div>
+      ) : (
+        <button onClick={handleStop}
+          className="w-full flex items-center justify-center gap-2 bg-danger/10 hover:bg-danger/20 text-danger text-sm font-medium py-2 rounded-xl transition-colors">
+          <Square size={12} /> Stop
+        </button>
+      )}
+
+      {/* Log terminal */}
+      {logs.length > 0 && (
+        <div className="max-h-40 overflow-y-auto bg-bg-primary rounded-lg border border-border font-mono text-[11px]">
+          <div className="px-3 py-2 space-y-0.5">
+            {logs.slice(-30).map((entry, i) => (
+              <div key={i} className={`py-0.5 ${
+                entry.type === 'error' ? 'text-danger' :
+                entry.type === 'report' ? 'text-success font-semibold' :
+                'text-fg-secondary'
+              }`}>
+                {entry.message}
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
@@ -184,7 +305,7 @@ function OverviewTab({
             Start by searching for jobs. Your stats will appear here once you get going.
           </p>
           <button
-            onClick={() => navigate('/search')}
+            onClick={() => navigate('/find?tab=search')}
             className="mt-2 flex items-center gap-2 bg-accent hover:bg-accent/90 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors"
           >
             <Search size={14} />
@@ -250,9 +371,9 @@ function OverviewTab({
             </div>
           ) : (
             <div className="space-y-2">
-              {activity.map((item) => (
+              {activity.map((item, idx) => (
                 <div
-                  key={item.id ?? item.job_id ?? Math.random()}
+                  key={item.id ?? item.job_id ?? `item-${idx}`}
                   className="flex items-start gap-3 rounded-lg bg-bg-tertiary px-3 py-2.5"
                 >
                   <span
@@ -280,14 +401,14 @@ function OverviewTab({
             <h2 className="text-sm font-semibold text-fg-primary">Quick Actions</h2>
             <div className="space-y-2">
               <button
-                onClick={() => navigate('/scraper')}
+                onClick={() => navigate('/find?tab=scraper')}
                 className="w-full flex items-center justify-center gap-2 bg-bg-tertiary hover:bg-border text-fg-primary text-sm font-medium py-2.5 rounded-xl border border-border transition-colors"
               >
                 <RefreshCw size={14} />
                 Scrape New Posts
               </button>
               <button
-                onClick={() => navigate('/email')}
+                onClick={() => navigate('/outreach?tab=email')}
                 className="w-full flex items-center justify-center gap-2 bg-bg-tertiary hover:bg-border text-fg-primary text-sm font-medium py-2.5 rounded-xl border border-border transition-colors"
               >
                 <Mail size={14} />
@@ -295,6 +416,9 @@ function OverviewTab({
               </button>
             </div>
           </div>
+
+          {/* Daily Cycle */}
+          <DailyCycleCard />
 
           {/* Browser Status */}
           <div className="bg-bg-secondary border border-border rounded-2xl p-5 space-y-4">
@@ -673,19 +797,16 @@ const IMPACT_BADGE = {
 
 function OutreachInsightsTab() {
   const [patterns, setPatterns] = useState(null)
-  const [conversion, setConversion] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [pRes, cRes] = await Promise.allSettled([
+      const [pRes] = await Promise.allSettled([
         api.getPatterns(),
-        api.getConversion(),
       ])
       if (cancelled) return
       if (pRes.status === 'fulfilled') setPatterns(pRes.value)
-      if (cRes.status === 'fulfilled') setConversion(cRes.value)
       setLoading(false)
     }
     load()
@@ -701,18 +822,26 @@ function OutreachInsightsTab() {
     )
   }
 
-  // Conversion funnel data
-  const funnel = conversion?.funnel ?? {}
+  // Funnel data comes from analyze_patterns().funnel
+  const funnel = patterns?.funnel ?? {}
   const funnelMax = Math.max(...FUNNEL_STAGES.map((s) => funnel[s.key] ?? 0), 1)
 
-  // Domain relevance breakdown
-  const relevance = patterns?.domain_relevance ?? [
-    { level: 'High', sent: 0, converted: 0, rate: 0 },
-    { level: 'Medium', sent: 0, converted: 0, rate: 0 },
-    { level: 'Low', sent: 0, converted: 0, rate: 0 },
-  ]
+  // Domain relevance — backend returns by_domain_relevance with {domain, sent, replied, rate}
+  const rawDomain = patterns?.by_domain_relevance ?? []
+  const relevance = rawDomain.length > 0
+    ? rawDomain.map((d) => ({
+        level: d.domain,
+        sent: d.sent ?? 0,
+        converted: d.replied ?? 0,
+        rate: d.rate != null ? Math.round(d.rate * 100) : 0,
+      }))
+    : [
+        { level: 'High', sent: 0, converted: 0, rate: 0 },
+        { level: 'Medium', sent: 0, converted: 0, rate: 0 },
+        { level: 'Low', sent: 0, converted: 0, rate: 0 },
+      ]
 
-  // Recommendations
+  // Recommendations — backend returns impact in lowercase, IMPACT_BADGE uses uppercase
   const recommendations = (patterns?.recommendations ?? []).slice(0, 5)
 
   return (
@@ -802,7 +931,7 @@ function OutreachInsightsTab() {
                   <div className="flex items-start gap-2">
                     <span
                       className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                        IMPACT_BADGE[rec.impact] ?? 'bg-bg-tertiary text-fg-muted'
+                        IMPACT_BADGE[(rec.impact || '').toUpperCase()] ?? 'bg-bg-tertiary text-fg-muted'
                       } shrink-0 mt-0.5`}
                     >
                       {rec.impact}
@@ -963,7 +1092,7 @@ export default function Dashboard() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/search')}
+          onClick={() => navigate('/find?tab=search')}
           className="flex items-center gap-2 bg-accent hover:bg-accent/90 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors shrink-0"
         >
           <Search size={15} />

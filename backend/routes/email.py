@@ -11,9 +11,9 @@ from db import init_db
 from services.email_service import (
     email_worker_state,
     _email_lock,
-    _generate_email_with_gemini,
-    _send_email_smtp,
-    _is_blocked_email,
+    generate_email,
+    send_email,
+    is_email_blocked,
     _bulk_generate_worker,
     _bulk_send_worker,
     validate_email_before_send,
@@ -129,10 +129,11 @@ def api_generate_email(req: EmailGenerateRequest):
     post_data["is_hiring"] = req.is_hiring
 
     try:
-        result = _generate_email_with_gemini(post_data)
+        result = generate_email(post_data)
         return {"status": "ok", "post_id": req.post_id, **result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Email generation failed: {str(e)}")
+        print(f"Error in /api/email/generate: {e}")
+        raise HTTPException(status_code=500, detail="Email generation failed. Please try again.")
 
 
 @router.post("/api/email/send")
@@ -144,14 +145,14 @@ def api_send_email(req: EmailSendRequest):
         row = db_conn.execute("SELECT company FROM jobs WHERE post_id = ? LIMIT 1", (req.post_id,)).fetchone()
         if row:
             company = row["company"] or ""
-    if _is_blocked_email(req.to_email, company):
+    if is_email_blocked(req.to_email, company):
         raise HTTPException(status_code=400, detail="Blocked: this email belongs to your current employer (Southguild). Cannot send outreach.")
     check = validate_email_before_send(req.to_email)
     if not check["valid"]:
         raise HTTPException(status_code=400, detail=check["reason"])
     pid = req.post_id if req.post_id else None  # NULL for FK safety when no real post
     try:
-        result = _send_email_smtp(req.to_email, req.subject, req.body, attach_resume=req.attach_resume)
+        result = send_email(req.to_email, req.subject, req.body, attach_resume=req.attach_resume)
         if result["status"] == "sent":
             db_conn.execute(
                 """INSERT INTO email_outreach (post_id, recipient_email, subject, body, status, sent_at)
@@ -171,6 +172,7 @@ def api_send_email(req: EmailSendRequest):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error in /api/email/send: {e}")
         try:
             db_conn.execute(
                 """INSERT INTO email_outreach (post_id, recipient_email, subject, body, status, error_message, error_type)
@@ -180,7 +182,7 @@ def api_send_email(req: EmailSendRequest):
             db_conn.commit()
         except Exception:
             pass
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Email sending failed. Please try again.")
 
 
 @router.post("/api/email/bulk-generate")
@@ -281,7 +283,7 @@ def api_email_history():
 
 @router.get("/api/email/connections/{post_id}")
 def api_email_connections(post_id: int):
-    conn = init_db()
+    conn = _get_db()
     row = conn.execute("SELECT j.company FROM jobs j WHERE j.post_id = ?", (post_id,)).fetchone()
     if not row or not row["company"]:
         return {"has_connections": False, "company": "", "contacts": [], "recommendation": "cold_apply"}
@@ -324,7 +326,7 @@ def api_imap_status():
 @router.get("/api/email/stats")
 def api_email_stats():
     """Comprehensive email delivery stats."""
-    conn = init_db()
+    conn = _get_db()
 
     total = conn.execute("SELECT COUNT(*) FROM email_outreach").fetchone()[0]
     sent = conn.execute("SELECT COUNT(*) FROM email_outreach WHERE status = 'sent'").fetchone()[0]
@@ -385,7 +387,7 @@ def api_email_stats():
 def api_classify_failures():
     """One-time: classify existing failed emails by checking address format."""
     import re
-    conn = init_db()
+    conn = _get_db()
     unclassified = conn.execute(
         "SELECT id, recipient_email FROM email_outreach WHERE status='failed' AND error_type IS NULL"
     ).fetchall()
@@ -406,7 +408,7 @@ def api_classify_failures():
 @router.get("/api/email/address-quality")
 def api_address_quality():
     """Report on email address quality issues."""
-    conn = init_db()
+    conn = _get_db()
 
     # Multi-address
     multi = conn.execute(
@@ -441,7 +443,7 @@ def api_address_quality():
 @router.get("/api/email/send-time-stats")
 def api_send_time_stats():
     """Analyze reply rates by send hour and day of week."""
-    conn = init_db()
+    conn = _get_db()
 
     # By hour of day
     hourly = []
@@ -489,7 +491,7 @@ def api_send_time_stats():
 @router.post("/api/email/update-status")
 def api_update_email_status(req: dict):
     """Manually update an email's status (e.g., mark as replied, bounced)."""
-    conn = init_db()
+    conn = _get_db()
     outreach_id = req.get("outreach_id")
     new_status = req.get("status")
     if not outreach_id or new_status not in ("sent", "replied", "failed", "draft", "bounced"):

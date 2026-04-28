@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   BarChart3, RefreshCw, Download, CheckCircle, Clock, AlertCircle,
   Mail, MessageSquare, Award, XCircle, Eye, AlertTriangle, Send,
-  Trophy, FlaskConical, Loader2, Inbox,
+  Trophy, FlaskConical, Loader2, Inbox, Square, X,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -62,6 +62,9 @@ function FollowUpTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sendingIds, setSendingIds] = useState(new Set());
+  const [workerStatus, setWorkerStatus] = useState(null);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewingId, setPreviewingId] = useState(null);
 
   useEffect(() => {
     loadFollowups();
@@ -78,6 +81,16 @@ function FollowUpTab() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      try {
+        const ws = await api.getFollowupWorkerStatus();
+        setWorkerStatus(ws);
+      } catch {}
+    }, 3000);
+    return () => clearInterval(poll);
+  }, []);
 
   async function handleSendFollowup(outreachId) {
     setSendingIds((prev) => new Set(prev).add(outreachId));
@@ -129,6 +142,22 @@ function FollowUpTab() {
           <Send size={13} />
           Send All Overdue
         </button>
+        {workerStatus?.running && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-fg-muted">
+              Worker: {workerStatus.current}/{workerStatus.total}
+            </span>
+            <button
+              onClick={async () => {
+                await api.stopFollowupWorker();
+                toast({ title: "Follow-up worker stopped", type: "info" });
+              }}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-danger/10 text-danger text-xs hover:bg-danger/20 transition-colors"
+            >
+              <Square size={10} /> Stop
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Summary Stats */}
@@ -191,14 +220,34 @@ function FollowUpTab() {
                 </span>
                 <span className="w-28 text-center">
                   {(item.urgency === "OVERDUE" || item.urgency === "URGENT") ? (
-                    <button
-                      onClick={() => handleSendFollowup(item.outreach_id)}
-                      disabled={sendingIds.has(item.outreach_id)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-accent-bg text-accent text-xs font-medium hover:opacity-80 transition-opacity disabled:opacity-50"
-                    >
-                      <Send size={12} />
-                      {sendingIds.has(item.outreach_id) ? "Sending..." : "Send F/U"}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={async () => {
+                          setPreviewingId(item.outreach_id);
+                          try {
+                            const preview = await api.previewFollowup(item.outreach_id);
+                            setPreviewData({ ...preview, outreach_id: item.outreach_id });
+                          } catch (e) {
+                            toast({ title: "Preview failed", description: e.message, type: "error" });
+                          } finally {
+                            setPreviewingId(null);
+                          }
+                        }}
+                        disabled={previewingId === item.outreach_id}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border text-fg-secondary text-[10px] hover:text-fg-primary transition-colors disabled:opacity-50"
+                      >
+                        <Eye size={10} />
+                        {previewingId === item.outreach_id ? "..." : "Preview"}
+                      </button>
+                      <button
+                        onClick={() => handleSendFollowup(item.outreach_id)}
+                        disabled={sendingIds.has(item.outreach_id)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-accent-bg text-accent text-[10px] font-medium hover:opacity-80 transition-opacity disabled:opacity-50"
+                      >
+                        <Send size={10} />
+                        {sendingIds.has(item.outreach_id) ? "..." : "Send"}
+                      </button>
+                    </div>
                   ) : (
                     <span className="text-fg-muted">—</span>
                   )}
@@ -208,6 +257,34 @@ function FollowUpTab() {
           )}
         </div>
       </div>
+
+      {previewData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewData(null)}>
+          <div className="bg-bg-secondary border border-border rounded-xl w-full max-w-lg mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <span className="text-sm font-semibold text-fg-primary">Follow-up Preview</span>
+              <button onClick={() => setPreviewData(null)} className="text-fg-muted hover:text-fg-primary"><X size={14} /></button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div>
+                <p className="text-xs text-fg-muted mb-1">Subject</p>
+                <p className="text-sm text-fg-primary">{previewData.subject}</p>
+              </div>
+              <div>
+                <p className="text-xs text-fg-muted mb-1">Body</p>
+                <p className="text-sm text-fg-secondary whitespace-pre-wrap font-mono leading-relaxed">{previewData.body}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-border">
+              <button onClick={() => setPreviewData(null)} className="px-3 py-1.5 rounded-lg border border-border text-fg-secondary text-xs hover:text-fg-primary">Close</button>
+              <button onClick={async () => {
+                await handleSendFollowup(previewData.outreach_id);
+                setPreviewData(null);
+              }} className="px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent/90">Send Follow-up</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -262,6 +339,104 @@ function ABTestingTab() {
       )}
     </div>
   );
+}
+
+function SendTimeCard() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getSendTimeStats().then(setData).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="flex items-center gap-2 py-6 justify-center text-fg-muted text-sm"><Loader2 size={14} className="animate-spin" /> Loading send time stats...</div>
+  if (!data || (!data.by_hour && !data.by_day)) return null
+
+  const hours = data.by_hour || {}
+  const days = data.by_day || {}
+  const maxHour = Math.max(...Object.values(hours), 1)
+  const maxDay = Math.max(...Object.values(days), 1)
+
+  return (
+    <div className="grid grid-cols-2 gap-4 mt-6">
+      <div className="bg-bg-secondary rounded-xl border border-border p-5">
+        <h3 className="text-sm font-semibold text-fg-primary mb-3">Reply Rate by Hour</h3>
+        {data.best_hour != null && (
+          <p className="text-xs text-success mb-3">Best hour: <strong>{data.best_hour}:00</strong></p>
+        )}
+        <div className="space-y-1">
+          {Object.entries(hours).slice(0, 12).map(([hour, rate]) => (
+            <div key={hour} className="flex items-center gap-2">
+              <span className="text-[10px] text-fg-muted w-8 text-right font-mono">{hour}:00</span>
+              <div className="flex-1 h-3 bg-bg-tertiary rounded-full overflow-hidden">
+                <div className="h-full bg-accent rounded-full" style={{ width: `${(rate / maxHour) * 100}%` }} />
+              </div>
+              <span className="text-[10px] text-fg-secondary w-8 text-right font-mono">{typeof rate === 'number' ? rate.toFixed(1) : rate}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="bg-bg-secondary rounded-xl border border-border p-5">
+        <h3 className="text-sm font-semibold text-fg-primary mb-3">Reply Rate by Day</h3>
+        {data.best_day && (
+          <p className="text-xs text-success mb-3">Best day: <strong>{data.best_day}</strong></p>
+        )}
+        <div className="space-y-1.5">
+          {Object.entries(days).map(([day, rate]) => (
+            <div key={day} className="flex items-center gap-2">
+              <span className="text-xs text-fg-muted w-12 text-right">{day.slice(0, 3)}</span>
+              <div className="flex-1 h-4 bg-bg-tertiary rounded-full overflow-hidden">
+                <div className="h-full bg-info rounded-full" style={{ width: `${(rate / maxDay) * 100}%` }} />
+              </div>
+              <span className="text-xs text-fg-secondary w-10 text-right font-mono">{typeof rate === 'number' ? rate.toFixed(1) : rate}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AddressQualityCard() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getAddressQuality().then(setData).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  if (loading || !data) return null
+
+  return (
+    <div className="bg-bg-secondary rounded-xl border border-border p-5 mt-4">
+      <h3 className="text-sm font-semibold text-fg-primary mb-3">Address Quality Report</h3>
+      <div className="grid grid-cols-3 gap-4">
+        <div className="text-center">
+          <p className="text-2xl font-bold text-success font-mono">{data.valid || 0}</p>
+          <p className="text-xs text-fg-muted mt-1">Valid</p>
+        </div>
+        <div className="text-center">
+          <p className="text-2xl font-bold text-warning font-mono">{data.generic || 0}</p>
+          <p className="text-xs text-fg-muted mt-1">Generic</p>
+        </div>
+        <div className="text-center">
+          <p className="text-2xl font-bold text-danger font-mono">{data.bounced || 0}</p>
+          <p className="text-xs text-fg-muted mt-1">Bounced</p>
+        </div>
+      </div>
+      {data.issues?.length > 0 && (
+        <div className="mt-3 max-h-32 overflow-y-auto">
+          {data.issues.slice(0, 10).map((issue, i) => (
+            <div key={i} className="flex items-center gap-2 py-1 text-xs">
+              <AlertCircle size={11} className="text-warning shrink-0" />
+              <span className="text-fg-secondary truncate">{issue.email}</span>
+              <span className="text-fg-muted ml-auto">{issue.reason}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function EmailAnalytics() {
@@ -342,6 +517,35 @@ export default function EmailAnalytics() {
             >
               {checking ? <Loader2 size={14} className="animate-spin" /> : <Inbox size={14} />}
               {checking ? "Checking..." : "Check Replies"}
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await api.classifyFailures();
+                  toast({ title: `Classified ${res.classified || 0} failures`, type: "success" });
+                } catch (e) {
+                  toast({ title: "Classification failed", description: e.message, type: "error" });
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary transition-colors"
+            >
+              <AlertCircle size={14} />
+              Classify Failures
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await api.checkBounces();
+                  toast({ title: `Found ${res.bounces || 0} bounces`, type: res.bounces > 0 ? "warning" : "success" });
+                  load();
+                } catch (e) {
+                  toast({ title: "Bounce check failed", description: e.message, type: "error" });
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary transition-colors"
+            >
+              <XCircle size={14} />
+              Check Bounces
             </button>
             {imapStatus?.last_checked && (
               <span className="text-fg-muted text-xs">Last: {new Date(imapStatus.last_checked).toLocaleTimeString()}</span>
@@ -457,6 +661,10 @@ export default function EmailAnalytics() {
             </div>
           </div>
         </div>
+
+        {/* Send Time & Address Quality */}
+        <SendTimeCard />
+        <AddressQualityCard />
         </>
         )}
       </div>

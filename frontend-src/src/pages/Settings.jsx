@@ -349,6 +349,91 @@ function ResumeVariantsCard({ toast }) {
   )
 }
 
+/* ─── Email Config Status ─── */
+
+function EmailConfigStatus() {
+  const [config, setConfig] = useState(null)
+
+  useEffect(() => {
+    api.getEmailConfig().then(setConfig).catch(() => {})
+  }, [])
+
+  if (!config) return null
+
+  return (
+    <Card title="Email Config Status" icon={Info}>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Status</Label>
+          <div className="flex items-center gap-2">
+            {config.configured ? (
+              <><CheckCircle2 size={14} className="text-success" /><span className="text-sm text-success">Configured</span></>
+            ) : (
+              <><AlertCircle size={14} className="text-danger" /><span className="text-sm text-danger">Not Configured</span></>
+            )}
+          </div>
+        </div>
+        {config.smtp_host && (
+          <div>
+            <Label>SMTP Host</Label>
+            <p className="text-sm text-fg-primary font-mono">{config.smtp_host}</p>
+          </div>
+        )}
+        {config.from_email && (
+          <div>
+            <Label>From Email</Label>
+            <p className="text-sm text-fg-primary font-mono">{config.from_email}</p>
+          </div>
+        )}
+        {config.from_name && (
+          <div>
+            <Label>From Name</Label>
+            <p className="text-sm text-fg-primary">{config.from_name}</p>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+/* ─── Resume Status ─── */
+
+function ResumeStatusCard() {
+  const [status, setStatus] = useState(null)
+
+  useEffect(() => {
+    api.getResumeStatus().then(setStatus).catch(() => {})
+  }, [])
+
+  if (!status) return null
+
+  return (
+    <Card title="Resume Status" icon={FileText}>
+      <div className="flex items-center gap-4">
+        {status.exists ? (
+          <>
+            <CheckCircle2 size={16} className="text-success" />
+            <div>
+              <p className="text-sm text-fg-primary font-medium">Resume uploaded</p>
+              <p className="text-xs text-fg-muted">
+                {status.filename || 'resume.pdf'} · {status.size ? `${(status.size / 1024).toFixed(0)} KB` : ''}
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <AlertCircle size={16} className="text-warning" />
+            <div>
+              <p className="text-sm text-fg-primary font-medium">No resume uploaded</p>
+              <p className="text-xs text-fg-muted">Upload a resume in the Resume Variants section below</p>
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 /* ─── Main Settings component ─── */
 
 export default function Settings() {
@@ -423,7 +508,12 @@ export default function Settings() {
   async function saveProfile() {
     setProfileSaving(true)
     try {
-      await api.saveProfile(profile)
+      const payload = {
+        ...profile,
+        experience_years: parseInt(profile.experience_years, 10) || 0,
+        notice_period_days: parseInt(profile.notice_period_days, 10) || 0,
+      }
+      await api.saveProfile(payload)
       toast({ title: 'Profile saved', description: 'Your profile information has been updated.', type: 'success' })
     } catch (e) {
       toast({ title: 'Save failed', description: e.message, type: 'error' })
@@ -607,6 +697,7 @@ export default function Settings() {
                 </div>
               </Card>
 
+              <ResumeStatusCard />
               <ResumeVariantsCard toast={toast} />
             </div>
           )}
@@ -706,6 +797,8 @@ export default function Settings() {
                   </p>
                 </div>
               </Card>
+
+              <EmailConfigStatus />
 
               {/* Gemini API */}
               <Card

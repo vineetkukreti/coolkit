@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   GitBranch, RefreshCw, SlidersHorizontal, LayoutGrid, List,
-  Mail, CheckCircle, Clock, AlertCircle, XCircle, Award, Search, X,
+  Mail, CheckCircle, Clock, AlertCircle, XCircle, Award, Search, X, Users,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -40,8 +40,111 @@ function timeAgo(dateStr) {
   return `${Math.floor(days / 7)}w ago`;
 }
 
+function CompanyScanBtn({ company }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  if (!company) return null;
+
+  const handleScan = async (e) => {
+    e.stopPropagation();
+    setLoading(true);
+    try {
+      const data = await api.scanCompany(company);
+      setResult(data);
+    } catch {} finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button onClick={handleScan} disabled={loading}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-fg-muted hover:text-accent hover:bg-accent-bg transition-colors disabled:opacity-50"
+        title="Scan company health">
+        {loading ? <RefreshCw size={10} className="animate-spin" /> : <Search size={10} />}
+        Scan
+      </button>
+      {result && (
+        <div className="absolute left-0 top-full mt-1 z-20 bg-bg-secondary border border-border rounded-lg shadow-xl p-3 w-56"
+          onClick={e => e.stopPropagation()}>
+          <p className="text-xs font-semibold text-fg-primary mb-2">{company}</p>
+          {result.signals?.map((s, i) => (
+            <div key={i} className="flex items-start gap-1.5 py-0.5">
+              <span className={`text-[10px] ${s.positive ? 'text-success' : 'text-warning'}`}>{s.positive ? '+' : '!'}</span>
+              <span className="text-[10px] text-fg-secondary">{s.text || s.signal}</span>
+            </div>
+          ))}
+          {(!result.signals || result.signals.length === 0) && (
+            <p className="text-[10px] text-fg-muted">{result.summary || 'No signals found'}</p>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); setResult(null); }}
+            className="mt-2 text-[10px] text-fg-muted hover:text-fg-primary">Close</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConnectionsBtn({ company }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  if (!company) return null;
+
+  const handleFind = async (e) => {
+    e.stopPropagation();
+    setLoading(true);
+    try {
+      const data = await api.getConnections(company);
+      setResult(data);
+    } catch {} finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button onClick={handleFind} disabled={loading}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-fg-muted hover:text-info hover:bg-info-bg transition-colors disabled:opacity-50"
+        title="Find connections">
+        {loading ? <RefreshCw size={10} className="animate-spin" /> : <Users size={10} />}
+        Connections
+      </button>
+      {result && (
+        <div className="absolute left-0 top-full mt-1 z-20 bg-bg-secondary border border-border rounded-lg shadow-xl p-3 w-56"
+          onClick={e => e.stopPropagation()}>
+          <p className="text-xs font-semibold text-fg-primary mb-2">Connections at {company}</p>
+          {result.connections?.length > 0 ? result.connections.slice(0, 5).map((c, i) => (
+            <div key={i} className="py-1 text-[10px]">
+              <span className="text-fg-primary font-medium">{c.name}</span>
+              {c.title && <span className="text-fg-muted ml-1">· {c.title}</span>}
+            </div>
+          )) : (
+            <p className="text-[10px] text-fg-muted">{result.message || 'No connections found'}</p>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); setResult(null); }}
+            className="mt-2 text-[10px] text-fg-muted hover:text-fg-primary">Close</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function KanbanCard({ lead, onClick, onStageChange }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside, true);
+    return () => document.removeEventListener('click', handleClickOutside, true);
+  }, [menuOpen]);
 
   return (
     <div
@@ -54,7 +157,7 @@ function KanbanCard({ lead, onClick, onStageChange }) {
       </div>
       <div className="flex items-center justify-between mt-2">
         {/* Clickable stage badge to change stage */}
-        <div className="relative">
+        <div className="relative" ref={menuRef}>
           <button onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>
             <StageBadge stage={lead.stage} />
           </button>
@@ -73,6 +176,10 @@ function KanbanCard({ lead, onClick, onStageChange }) {
           )}
         </div>
         <span className="text-xs text-fg-muted">{timeAgo(lead.updated_at || lead.created_at)}</span>
+      </div>
+      <div className="flex items-center gap-1 mt-2">
+        <CompanyScanBtn company={lead.company} />
+        <ConnectionsBtn company={lead.company} />
       </div>
     </div>
   );
@@ -118,6 +225,10 @@ function ListRow({ lead, onClick }) {
         <p className="text-xs text-fg-muted mt-0.5 truncate">{lead.recipient_name} &mdash; {lead.recipient_email}</p>
       </div>
       <StageBadge stage={lead.stage} />
+      <div className="flex items-center gap-1 shrink-0">
+        <CompanyScanBtn company={lead.company} />
+        <ConnectionsBtn company={lead.company} />
+      </div>
       <span className="text-xs text-fg-muted shrink-0 w-16 text-right">{timeAgo(lead.updated_at || lead.created_at)}</span>
     </div>
   );
@@ -178,12 +289,14 @@ export default function Pipeline() {
   async function handleStageChange(leadId, newStage) {
     try {
       await api.updatePipelineStage({ lead_id: leadId, stage: newStage });
-      // Update local state immediately
-      setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, stage: newStage, updated_at: new Date().toISOString() } : l));
-      setStats((prev) => {
-        const old = leads.find((l) => l.id === leadId)?.stage;
-        if (!old) return prev;
-        return { ...prev, [old]: (prev[old] || 1) - 1, [newStage]: (prev[newStage] || 0) + 1 };
+      // Update local state using functional form to avoid stale closure
+      setLeads((prev) => {
+        const lead = prev.find((l) => l.id === leadId);
+        const oldStage = lead?.stage;
+        if (oldStage && oldStage !== newStage) {
+          setStats((p) => ({ ...p, [oldStage]: (p[oldStage] || 1) - 1, [newStage]: (p[newStage] || 0) + 1 }));
+        }
+        return prev.map((l) => l.id === leadId ? { ...l, stage: newStage, updated_at: new Date().toISOString() } : l);
       });
       toast({ type: "success", title: `Moved to ${newStage}` });
     } catch (err) {

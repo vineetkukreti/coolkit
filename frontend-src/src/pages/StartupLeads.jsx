@@ -92,16 +92,10 @@ function EmailFinderPanel({ onComplete }) {
 
   const startEnrichment = async () => {
     try {
-      await fetch('/api/leads/enrich/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ max_leads: maxLeads, target }),
-      })
-      // Start polling
+      await api.startEnrichment({ max_leads: maxLeads, target })
       pollRef.current = setInterval(async () => {
         try {
-          const res = await fetch('/api/leads/enrich/status')
-          const data = await res.json()
+          const data = await api.getEnrichmentStatus()
           setEnrichStatus(data)
           if (!data.running && data.summary) {
             clearInterval(pollRef.current)
@@ -117,7 +111,7 @@ function EmailFinderPanel({ onComplete }) {
 
   const stopEnrichment = async () => {
     try {
-      await fetch('/api/leads/enrich/stop', { method: 'POST' })
+      await api.stopEnrichment()
       if (pollRef.current) {
         clearInterval(pollRef.current)
         pollRef.current = null
@@ -129,14 +123,12 @@ function EmailFinderPanel({ onComplete }) {
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch('/api/leads/enrich/status')
-        const data = await res.json()
+        const data = await api.getEnrichmentStatus()
         if (data.running) {
           setEnrichStatus(data)
           pollRef.current = setInterval(async () => {
             try {
-              const res2 = await fetch('/api/leads/enrich/status')
-              const data2 = await res2.json()
+              const data2 = await api.getEnrichmentStatus()
               setEnrichStatus(data2)
               if (!data2.running) {
                 clearInterval(pollRef.current)
@@ -320,8 +312,7 @@ function LeadRow({ lead, onStatusChange, onFindEmail }) {
     setFinding(true)
     setFoundEmails(null)
     try {
-      const res = await fetch(`/api/leads/enrich/single/${lead.id}`, { method: 'POST' })
-      const data = await res.json()
+      const data = await api.enrichSingleLead(lead.id)
       setFoundEmails(data)
       if (data.emails_found > 0 && onFindEmail) {
         onFindEmail(lead.id, data.saved)
@@ -565,8 +556,7 @@ export default function StartupLeads() {
       params.set('limit', PAGE_SIZE)
       params.set('offset', page * PAGE_SIZE)
 
-      const res = await fetch(`/api/leads?${params}`)
-      const data = await res.json()
+      const data = await api.getLeads(Object.fromEntries(params))
       setLeads(data.leads || [])
       setTotal(data.total || 0)
     } catch (err) {
@@ -578,15 +568,13 @@ export default function StartupLeads() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/leads/stats')
-      setStats(await res.json())
+      setStats(await api.getLeadsStats())
     } catch {}
   }
 
   const fetchSources = async () => {
     try {
-      const res = await fetch('/api/leads/sources')
-      const data = await res.json()
+      const data = await api.getLeadsSources()
       setSources(data.sources || [])
     } catch {}
   }
@@ -604,11 +592,7 @@ export default function StartupLeads() {
 
   const handleStatusChange = async (leadId, newStatus) => {
     try {
-      await fetch(`/api/leads/${leadId}/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email_status: newStatus }),
-      })
+      await api.updateLead(leadId, { email_status: newStatus })
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, email_status: newStatus } : l))
     } catch (err) {
       console.error('Failed to update status:', err)
@@ -623,7 +607,7 @@ export default function StartupLeads() {
   const handleImport = async () => {
     setImporting(true)
     try {
-      await fetch('/api/leads/import', { method: 'POST' })
+      await api.importLeads()
       await refreshAll()
     } catch (err) {
       console.error('Import failed:', err)

@@ -26,6 +26,8 @@ import requests
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
+from utils.network import is_private_ip
+
 log = logging.getLogger("email_finder")
 
 # ─── Shared Constants ────────────────────────────────────────────────────────
@@ -147,6 +149,9 @@ def score_email(email: str, verified: str = "unknown", source: str = "") -> int:
 
 def fetch_page(url: str, timeout: int = 10) -> str | None:
     """Fetch a page, return HTML or None."""
+    # SSRF protection: block requests to private/internal IPs
+    if is_private_ip(url):
+        return None
     try:
         resp = requests.get(url, headers=random_headers(), timeout=timeout, allow_redirects=True)
         if resp.status_code == 200 and "text/html" in resp.headers.get("content-type", ""):

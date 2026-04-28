@@ -65,16 +65,20 @@ export default function AutoApply() {
   const targetToday = quotaData.target || 500
   const progressPct = Math.min(100, Math.round((appliedToday / targetToday) * 100))
 
+  const hasLog = status?.log && status.log.length > 0
+
   return (
-    <div className="space-y-6">
+    <div className="p-6 md:p-8 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-fg-primary flex items-center gap-3">
-            <Zap size={24} className="text-accent" />
+          <h2 className="text-xl font-semibold text-fg-primary flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-accent-bg flex items-center justify-center">
+              <Zap size={16} className="text-accent" />
+            </div>
             Auto-Apply Engine
-          </h1>
-          <p className="text-sm text-fg-muted mt-1">
+          </h2>
+          <p className="text-sm text-fg-muted mt-1 ml-[42px]">
             Automated job applications across all platforms
           </p>
         </div>
@@ -87,15 +91,17 @@ export default function AutoApply() {
                   type="number"
                   value={maxApps}
                   onChange={e => setMaxApps(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-20 px-2 py-1.5 bg-bg-tertiary border border-border rounded-lg text-sm text-fg-primary"
+                  className="w-20 px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-sm text-fg-primary
+                    focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
               <button
                 onClick={handleStart}
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl
+                  text-sm font-semibold transition-colors disabled:opacity-50"
               >
-                <Play size={16} />
+                <Play size={14} />
                 Start Auto-Apply
               </button>
             </>
@@ -103,88 +109,93 @@ export default function AutoApply() {
             <button
               onClick={handleStop}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-danger hover:bg-danger/90 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-5 py-2.5 bg-danger/10 hover:bg-danger/20 text-danger
+                rounded-xl text-sm font-semibold border border-danger/20 transition-colors disabled:opacity-50"
             >
-              <Square size={16} />
-              Stop
+              <Square size={14} />
+              Stop Engine
             </button>
           )}
         </div>
       </div>
 
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        {[
+          { label: 'Applied Today', value: appliedToday, icon: CheckCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', valueColor: 'text-fg-primary' },
+          { label: 'Failed', value: quotaData.failed || 0, icon: XCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', valueColor: 'text-fg-primary' },
+          { label: 'Skipped', value: quotaData.skipped || 0, icon: Clock, iconBg: 'bg-warning-bg', iconColor: 'text-warning', valueColor: 'text-fg-primary' },
+          { label: 'All-Time Total', value: statsData.total || 0, icon: TrendingUp, iconBg: 'bg-accent-bg', iconColor: 'text-accent', valueColor: 'text-fg-primary' },
+        ].map(({ label, value, icon: Icon, iconBg, iconColor, valueColor }) => (
+          <div key={label} className="bg-bg-secondary border border-border rounded-2xl p-5 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-fg-muted font-medium">{label}</span>
+              <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center`}>
+                <Icon size={15} className={iconColor} />
+              </div>
+            </div>
+            <p className={`text-4xl font-bold font-mono ${valueColor}`}>{value}</p>
+          </div>
+        ))}
+      </div>
+
       {/* Daily Quota Progress */}
-      <div className="bg-bg-secondary border border-border rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3">
+      <div className="bg-bg-secondary border border-border rounded-2xl p-5 space-y-3">
+        <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-fg-primary flex items-center gap-2">
-            <Target size={16} className="text-accent" />
+            <Target size={14} className="text-accent" />
             Daily Quota
           </h3>
-          <span className="text-sm font-mono text-accent">
-            {appliedToday} / {targetToday}
+          <span className="text-sm font-mono font-semibold text-accent">
+            {appliedToday} <span className="text-fg-muted font-normal">/ {targetToday}</span>
           </span>
         </div>
-        <div className="w-full h-3 bg-bg-tertiary rounded-full overflow-hidden">
+        <div className="w-full h-2 bg-bg-tertiary rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-accent to-purple-400 rounded-full transition-all duration-500"
             style={{ width: `${progressPct}%` }}
           />
         </div>
-        <div className="flex items-center justify-between mt-2 text-xs text-fg-muted">
+        <div className="flex items-center justify-between text-xs text-fg-muted">
           <span>{progressPct}% complete</span>
           <span>{targetToday - appliedToday} remaining</span>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Applied Today', value: appliedToday, icon: CheckCircle, color: 'text-success' },
-          { label: 'Failed', value: quotaData.failed || 0, icon: XCircle, color: 'text-danger' },
-          { label: 'Skipped', value: quotaData.skipped || 0, icon: Clock, color: 'text-warning' },
-          { label: 'All-Time Total', value: statsData.total || 0, icon: TrendingUp, color: 'text-accent' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-bg-secondary border border-border rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Icon size={14} className={color} />
-              <span className="text-xs text-fg-muted">{label}</span>
-            </div>
-            <p className={`text-2xl font-bold ${color}`}>{value}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Current Job */}
       {isRunning && progress.current_job && (
-        <div className="bg-accent-bg/50 border border-accent/30 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-2 h-2 bg-accent rounded-full animate-pulse" />
-            <span className="text-xs font-medium text-accent">Currently Applying</span>
+        <div className="bg-accent-bg/40 border border-accent/20 rounded-2xl p-4 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+            <Zap size={16} className="text-accent animate-pulse" />
           </div>
-          <p className="text-sm text-fg-primary font-medium">
-            {progress.current_job.title} at {progress.current_job.company}
-          </p>
-          <p className="text-xs text-fg-muted mt-0.5">
-            Method: {progress.current_job.method?.replace('_', ' ')}
-          </p>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-accent mb-0.5">Currently Applying</p>
+            <p className="text-sm text-fg-primary font-medium truncate">
+              {progress.current_job.title} at {progress.current_job.company}
+            </p>
+          </div>
+          <span className="text-xs text-fg-muted bg-bg-tertiary px-2.5 py-1 rounded-lg shrink-0">
+            {progress.current_job.method?.replace('_', ' ')}
+          </span>
         </div>
       )}
 
-      {/* Live Log */}
-      <div className="bg-bg-secondary border border-border rounded-xl overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-bg-tertiary/50">
-          <span className="text-xs font-semibold text-fg-primary">Activity Log</span>
+      {/* Activity Log */}
+      <div className="bg-bg-secondary border border-border rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <span className="text-sm font-semibold text-fg-primary">Activity Log</span>
           {isRunning && (
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" />
-              <span className="text-xs text-accent">Live</span>
-            </div>
+            <span className="flex items-center gap-1.5 text-xs font-medium text-success bg-success-bg px-2 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse inline-block" />
+              Live
+            </span>
           )}
         </div>
         <div
           ref={logRef}
-          className="h-80 overflow-y-auto p-3 font-mono text-xs space-y-0.5"
+          className={`overflow-y-auto px-5 py-3 font-mono text-xs space-y-1 ${hasLog ? 'max-h-72' : ''}`}
         >
-          {(status?.log || []).map((entry, i) => {
+          {hasLog ? (status.log.map((entry, i) => {
             const color = entry.type === 'applied' ? 'text-success'
               : entry.type === 'failed' ? 'text-danger'
               : entry.type === 'error' ? 'text-danger'
@@ -195,8 +206,8 @@ export default function AutoApply() {
             const time = entry.time?.split('T')[1]?.split('.')[0] || ''
 
             return (
-              <div key={i} className={`${color} leading-relaxed`}>
-                <span className="text-fg-muted/50">{time}</span>{' '}
+              <div key={i} className={`${color} leading-relaxed py-0.5`}>
+                <span className="text-fg-muted/40 mr-2">{time}</span>
                 {entry.type === 'applied' && `Applied: ${entry.job} at ${entry.company} (${entry.method})`}
                 {entry.type === 'failed' && `Failed: ${entry.job} at ${entry.company} — ${entry.error}`}
                 {entry.type === 'info' && entry.message}
@@ -205,11 +216,14 @@ export default function AutoApply() {
                 {entry.type === 'skip' && `Skipped: ${entry.reason}`}
               </div>
             )
-          })}
-          {(!status?.log || status.log.length === 0) && (
-            <p className="text-fg-muted text-center py-8">
-              No activity yet. Start auto-apply to begin.
-            </p>
+          })) : (
+            <div className="flex flex-col items-center gap-2 py-8">
+              <div className="w-10 h-10 rounded-xl bg-bg-tertiary flex items-center justify-center">
+                <Play size={16} className="text-fg-muted" />
+              </div>
+              <p className="text-sm text-fg-muted">No activity yet</p>
+              <p className="text-xs text-fg-muted/60">Start auto-apply to see logs here</p>
+            </div>
           )}
         </div>
       </div>

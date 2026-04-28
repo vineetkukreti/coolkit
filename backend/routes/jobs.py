@@ -188,3 +188,15 @@ def get_apply_stats():
 def api_get_quota():
     conn = init_db()
     return get_today_quota(conn)
+
+
+@router.get("/api/applications/export")
+def api_export_applications():
+    """Export applications log as CSV file."""
+    import os
+    from fastapi.responses import FileResponse
+    from services.logger import LOG_FILE, _ensure_log
+    _ensure_log()
+    if not os.path.exists(LOG_FILE):
+        return {"error": "No export file found"}
+    return FileResponse(LOG_FILE, media_type="text/csv", filename="applications_log.csv")

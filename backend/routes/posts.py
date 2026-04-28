@@ -37,6 +37,8 @@ def api_get_posts(
     limit: int = 200,
     offset: int = 0,
 ):
+    limit = min(max(1, limit), 1000)
+    offset = max(0, offset)
     conn = _get_db()
     posts = query_posts(
         conn, role=role, domain=domain, has_email=has_email,

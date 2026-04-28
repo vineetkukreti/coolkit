@@ -87,9 +87,9 @@ def _process_api_job(
 
     domain = score_domain_relevance(content)
 
-    # LLM extraction for richer data
+    # LLM extraction for richer data — only for relevant jobs
     llm = {}
-    if len(content) > 50:
+    if len(content) > 50 and domain in ("High", "Medium"):
         llm = llm_extract(content)
 
     roles = llm.get("role") or extract_roles(content)

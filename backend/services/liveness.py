@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
+from utils.network import is_private_ip
+
 logger = logging.getLogger(__name__)
 
 USER_AGENT = (
@@ -134,6 +136,10 @@ def check_url_liveness(url: str, timeout: int = 10) -> dict:
 
     Returns dict: {"url": str, "result": str, "reason": str}
     """
+    # SSRF protection: block requests to private/internal IPs
+    if is_private_ip(url):
+        return {"url": url, "result": "uncertain", "reason": "blocked: private/internal IP address"}
+
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

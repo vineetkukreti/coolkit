@@ -36,7 +36,8 @@ def api_tools_evaluate(req: dict):
     try:
         return evaluate_job(jd_text)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)[:300])
+        print(f"Error in /api/tools/evaluate: {e}")
+        raise HTTPException(status_code=500, detail="Job evaluation failed. Please try again.")
 
 
 @router.post("/api/tools/outreach")
@@ -55,7 +56,8 @@ def api_tools_outreach(req: dict):
             context=req.get("context", ""),
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)[:300])
+        print(f"Error in /api/tools/outreach: {e}")
+        raise HTTPException(status_code=500, detail="Outreach generation failed. Please try again.")
 
 
 @router.post("/api/tools/deep-dive")
@@ -68,7 +70,8 @@ def api_tools_deep_dive(req: dict):
     try:
         return deep_dive_company(company, req.get("role", ""))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)[:300])
+        print(f"Error in /api/tools/deep-dive: {e}")
+        raise HTTPException(status_code=500, detail="Company research failed. Please try again.")
 
 
 @router.post("/api/tools/tailor-cv")
@@ -81,7 +84,8 @@ def api_tools_tailor_cv(req: dict):
     try:
         return tailor_cv(jd_text)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)[:300])
+        print(f"Error in /api/tools/tailor-cv: {e}")
+        raise HTTPException(status_code=500, detail="CV tailoring failed. Please try again.")
 
 
 @router.post("/api/tools/interview-prep")
@@ -95,7 +99,8 @@ def api_tools_interview_prep(req: dict):
     try:
         return interview_prep(company, role)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)[:300])
+        print(f"Error in /api/tools/interview-prep: {e}")
+        raise HTTPException(status_code=500, detail="Interview prep generation failed. Please try again.")
 
 
 # ───────────────────────────────────────────────

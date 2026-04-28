@@ -78,39 +78,52 @@ function DisconnectButton({ onConfirm, loading }) {
 
 // ─── BrowserBar ───────────────────────────────────────────────────────────────
 
-export default function BrowserBar() {
+export default function BrowserBar({ browserStatus: externalStatus }) {
   const [status, setStatus] = useState(null)
   const [phase, setPhase] = useState('stopped') // stopped | starting | ready | applying | session-expired
   const [apiError, setApiError] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
+
+  const derivePhase = useCallback((data) => {
+    if (!data.running) {
+      setPhase('stopped')
+    } else if (data.status === 'starting') {
+      setPhase('starting')
+    } else if (!data.logged_in) {
+      setPhase('session-expired')
+    } else if (data.apply_log !== undefined && data.current_job) {
+      setPhase('applying')
+    } else {
+      setPhase('ready')
+    }
+  }, [])
 
   const fetchStatus = useCallback(async () => {
     try {
       const data = await api.getBrowserStatus()
       setStatus(data)
       setApiError(false)
-
-      if (!data.running) {
-        setPhase('stopped')
-      } else if (data.status === 'starting') {
-        setPhase('starting')
-      } else if (!data.logged_in) {
-        setPhase('session-expired')
-      } else if (data.apply_log !== undefined && data.current_job) {
-        setPhase('applying')
-      } else {
-        setPhase('ready')
-      }
+      derivePhase(data)
     } catch {
       setApiError(true)
     }
-  }, [])
+  }, [derivePhase])
+
+  // If external status is provided, use it and skip independent polling
+  useEffect(() => {
+    if (externalStatus) {
+      setStatus(externalStatus)
+      setApiError(false)
+      derivePhase(externalStatus)
+    }
+  }, [externalStatus, derivePhase])
 
   useEffect(() => {
+    if (externalStatus) return // Skip polling when status comes from parent
     fetchStatus()
     const id = setInterval(fetchStatus, POLL_INTERVAL)
     return () => clearInterval(id)
-  }, [fetchStatus])
+  }, [fetchStatus, externalStatus])
 
   const handleStartBrowser = async () => {
     setActionLoading(true)

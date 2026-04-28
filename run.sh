@@ -48,13 +48,48 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# ─── Banner ──────────────────────────────────────
-echo ""
-echo -e "${C}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${C}║${NC}  ${B}LinkedIn Job Parser${NC}                            ${C}║${NC}"
-echo -e "${C}║${NC}  ${D}Healthcare AI Job Auto-Applier${NC}                  ${C}║${NC}"
-echo -e "${C}╚══════════════════════════════════════════════════╝${NC}"
-echo ""
+# ─── Colors (extended) ────────────────────────────
+P='\033[38;5;141m'   # purple
+M='\033[38;5;177m'   # magenta/pink
+W='\033[1;37m'       # bold white
+
+# ─── Animated Banner ─────────────────────────────
+coolkit_banner() {
+    local lines=(
+        "${P}   ██████╗  ██████╗  ██████╗ ██╗     ██╗  ██╗██╗████████╗${NC}"
+        "${M}  ██╔════╝ ██╔═══██╗██╔═══██╗██║     ██║ ██╔╝██║╚══██╔══╝${NC}"
+        "${P}  ██║      ██║   ██║██║   ██║██║     █████╔╝ ██║   ██║   ${NC}"
+        "${M}  ██║      ██║   ██║██║   ██║██║     ██╔═██╗ ██║   ██║   ${NC}"
+        "${P}  ╚██████╗ ╚██████╔╝╚██████╔╝███████╗██║  ██╗██║   ██║   ${NC}"
+        "${M}   ╚═════╝  ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝   ${NC}"
+    )
+
+    echo ""
+    # Wipe in line by line
+    for line in "${lines[@]}"; do
+        echo -e "$line"
+        sleep 0.06
+    done
+
+    sleep 0.15
+
+    # Tagline typing effect
+    local tagline="  Job Hunting on Autopilot"
+    echo -ne "  ${D}"
+    for (( i=0; i<${#tagline}; i++ )); do
+        echo -n "${tagline:$i:1}"
+        sleep 0.025
+    done
+    echo -e "${NC}"
+
+    sleep 0.1
+
+    # Accent bar
+    echo -e "  ${P}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+coolkit_banner
 
 # ─── Venv ────────────────────────────────────────
 if [ ! -d "$VENV" ]; then
@@ -62,12 +97,12 @@ if [ ! -d "$VENV" ]; then
     python3 -m venv "$VENV"
 fi
 source "$VENV/bin/activate"
-export PYTHONPATH="$DIR/backend"
+export PYTHONPATH="$DIR:$DIR/backend"
 
 # ─── Start backend ───────────────────────────────
 start_backend() {
     echo -e "${G}[*] Starting backend on :$BACKEND_PORT${NC}"
-    uvicorn backend.server:app \
+    "$VENV/bin/uvicorn" backend.server:app \
         --host 0.0.0.0 \
         --port $BACKEND_PORT \
         >> "$LOG_DIR/backend.log" 2>&1 &

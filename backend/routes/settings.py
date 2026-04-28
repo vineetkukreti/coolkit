@@ -1,16 +1,33 @@
 """Settings routes — profile, SMTP, Gemini, resume upload, test email."""
 
+import json
 import os
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel
 
 from config import PROFILE
 from services.email_service import _send_email_smtp, SMTP_CONFIG
 
 router = APIRouter()
+
+# ───────────────────────────────────────────────
+# Settings token protection
+# ───────────────────────────────────────────────
+
+SETTINGS_TOKEN = os.getenv("SETTINGS_TOKEN", "")
+
+
+def _check_settings_token(request: Request):
+    """If SETTINGS_TOKEN is set, require it as X-Settings-Token header."""
+    if not SETTINGS_TOKEN:
+        return  # Local dev — no protection needed
+    token = request.headers.get("X-Settings-Token", "")
+    if token != SETTINGS_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid or missing settings token")
+
 
 # ───────────────────────────────────────────────
 # Thread-local DB connection
@@ -129,40 +146,25 @@ def api_get_all_settings():
 
 
 @router.post("/api/settings/profile")
-def api_save_profile(req: ProfileUpdate):
-    """Save profile to config.py and update in-memory PROFILE dict."""
+def api_save_profile(req: ProfileUpdate, request: Request):
+    """Save profile to config/profile.json and update in-memory PROFILE dict."""
+    _check_settings_token(request)
     updates = req.model_dump(exclude_unset=True)
     for key, val in updates.items():
         if val is not None and val != "":
             PROFILE[key] = val
 
-    # Write config.py
-    config_path = Path("backend/config.py")
-    lines = [
-        '"""User profile config — edit your details here."""\n',
-        "PROFILE = {\n",
-    ]
-    for k, v in PROFILE.items():
-        if isinstance(v, str):
-            lines.append(f'    "{k}": "{v}",\n')
-        else:
-            lines.append(f'    "{k}": {v},\n')
-    lines.append("}\n")
-
-    # Preserve RESUME_SKILLS and DEFAULTS from existing file
-    existing = config_path.read_text()
-    skills_start = existing.find("RESUME_SKILLS")
-    if skills_start >= 0:
-        lines.append("\n")
-        lines.append(existing[skills_start:])
-
-    config_path.write_text("".join(lines))
+    # Write to JSON file (safe — no code execution)
+    profile_path = Path("config/profile.json")
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(json.dumps(PROFILE, indent=2))
     return {"status": "ok", "message": "Profile saved"}
 
 
 @router.post("/api/settings/smtp")
-def api_save_smtp(req: SmtpUpdate):
+def api_save_smtp(req: SmtpUpdate, request: Request):
     """Save SMTP settings to .env and update in-memory config."""
+    _check_settings_token(request)
     update = {
         "SMTP_HOST": req.smtp_host,
         "SMTP_PORT": str(req.smtp_port),
@@ -188,8 +190,9 @@ def api_save_smtp(req: SmtpUpdate):
 
 
 @router.post("/api/settings/gemini")
-def api_save_gemini(req: GeminiUpdate):
+def api_save_gemini(req: GeminiUpdate, request: Request):
     """Save Gemini API key to .env."""
+    _check_settings_token(request)
     _update_env(GEMINI_API_KEY=req.api_key)
     os.environ["GEMINI_API_KEY"] = req.api_key
     return {"status": "ok", "message": "Gemini API key saved"}
@@ -208,46 +211,33 @@ def api_test_email():
         )
         return {"status": "ok", "message": f"Test email sent to {SMTP_CONFIG['from_email']}"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in /api/settings/test-email: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send test email. Check SMTP configuration.")
 
 
 @router.post("/api/settings/upload-resume")
 def api_upload_resume(file: UploadFile = File(...)):
-    """Upload a resume PDF. Saves to project root and updates config.py."""
+    """Upload a resume PDF. Saves to assets/ and updates profile."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
 
-    dest = Path("assets") / file.filename
+    # Sanitize filename to prevent path traversal
+    safe_filename = Path(file.filename).name
+    dest = Path("assets") / safe_filename
     content = file.file.read()
     dest.write_bytes(content)
 
-    # Update PROFILE in memory
+    # Update PROFILE in memory and persist to JSON
     PROFILE["resume_path"] = str(dest)
-
-    # Re-write config.py
-    config_path = Path("backend/config.py")
-    existing = config_path.read_text()
-    skills_start = existing.find("RESUME_SKILLS")
-    lines = [
-        '"""User profile config — edit your details here."""\n',
-        "PROFILE = {\n",
-    ]
-    for k, v in PROFILE.items():
-        if isinstance(v, str):
-            lines.append(f'    "{k}": "{v}",\n')
-        else:
-            lines.append(f'    "{k}": {v},\n')
-    lines.append("}\n")
-    if skills_start >= 0:
-        lines.append("\n")
-        lines.append(existing[skills_start:])
-    config_path.write_text("".join(lines))
+    profile_path = Path("config/profile.json")
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(json.dumps(PROFILE, indent=2))
 
     size_kb = len(content) / 1024
     return {
         "status": "ok",
-        "message": f"Resume uploaded: {file.filename} ({size_kb:.0f} KB)",
-        "filename": file.filename,
+        "message": f"Resume uploaded: {safe_filename} ({size_kb:.0f} KB)",
+        "filename": safe_filename,
         "path": str(dest),
     }
 

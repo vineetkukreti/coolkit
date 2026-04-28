@@ -19,6 +19,7 @@ import {
   Square,
   Search,
   Users,
+  Inbox,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -226,6 +227,7 @@ function EmailRow({ post, onGenerate, onSend, onSaveDraft, attachResume, generat
 /** Sent email row — expandable to show original post + email sent */
 function SentEmailRow({ item }) {
   const [expanded, setExpanded] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const sentDate = item.sent_at
     ? new Date(item.sent_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : "";
@@ -255,6 +257,26 @@ function SentEmailRow({ item }) {
           <p className="text-xs text-info font-mono truncate mt-0.5">{item.to_email}</p>
         </div>
         <span className="text-xs text-fg-muted/60 shrink-0">{sentDate}</span>
+        <select
+          value={item.reply_status || item.status || "sent"}
+          onClick={e => e.stopPropagation()}
+          onChange={async (e) => {
+            e.stopPropagation();
+            setUpdating(true);
+            try {
+              await api.updateEmailStatus(item.id || item.outreach_id, e.target.value);
+            } catch {}
+            setUpdating(false);
+          }}
+          disabled={updating}
+          className="text-[10px] bg-bg-tertiary border border-border rounded px-1.5 py-0.5 text-fg-secondary shrink-0 disabled:opacity-50"
+        >
+          <option value="sent">Sent</option>
+          <option value="replied">Replied</option>
+          <option value="bounced">Bounced</option>
+          <option value="no-reply">No Reply</option>
+          <option value="interviewing">Interview</option>
+        </select>
         {expanded ? <ChevronUp size={12} className="text-fg-muted shrink-0" /> : <ChevronDown size={12} className="text-fg-muted shrink-0" />}
       </div>
 
@@ -375,6 +397,8 @@ export default function EmailOutreach() {
   const [bulkGenConfirm, setBulkGenConfirm] = useState(false);
   const [bulkSendConfirm, setBulkSendConfirm] = useState(false);
 
+  const [imapPolling, setImapPolling] = useState(false);
+
   // Tabs & search
   const [activeTab, setActiveTab] = useState("queue");
   const [search, setSearch] = useState("");
@@ -414,6 +438,7 @@ export default function EmailOutreach() {
     loadPosts();
     loadHistory();
     startPolling();
+    api.getImapStatus().then(d => setImapPolling(d?.polling || false)).catch(() => {});
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
@@ -566,6 +591,32 @@ export default function EmailOutreach() {
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary transition-colors">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
           </button>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border text-xs">
+            <Inbox size={13} className={imapPolling ? "text-success" : "text-fg-muted"} />
+            <span className="text-fg-secondary">IMAP</span>
+            <button
+              onClick={async () => {
+                try {
+                  if (imapPolling) {
+                    await api.stopImapPolling();
+                    setImapPolling(false);
+                    toast({ title: "IMAP polling stopped", type: "info" });
+                  } else {
+                    await api.startImapPolling();
+                    setImapPolling(true);
+                    toast({ title: "IMAP polling started", type: "success", description: "Checking for replies automatically" });
+                  }
+                } catch (e) {
+                  toast({ title: "IMAP toggle failed", description: e.message, type: "error" });
+                }
+              }}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                imapPolling ? "bg-success-bg text-success" : "bg-bg-tertiary text-fg-muted hover:text-fg-primary"
+              }`}
+            >
+              {imapPolling ? "ON" : "OFF"}
+            </button>
+          </div>
         </div>
 
         {/* Stats bar */}

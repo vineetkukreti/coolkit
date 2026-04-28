@@ -1,32 +1,49 @@
 """User profile & search config — edit your details here."""
+import json
 import random
-PROFILE = {
-    "name": "Vineet Kukreti",
-    "first_name": "Vineet",
-    "last_name": "Kukreti",
-    "email": "vineetkukreti34@gmail.com",
-    "phone": "+91-7983207219",
-    "resume_path": "assets/resumes/default/vineet_kukreti_resume.pdf",
-    "location": "India",
-    "experience_years": 2,
-    "current_title": "AI Engineer",
-    "linkedin": "https://linkedin.com/in/vineetkukreti",
-    "github": "https://github.com/vineetkukreti",
-    "website": "https://github.com/vineetkukreti",
-    "notice_period_days": 30,
-    "desired_salary": 1200000,
-    "current_salary": 800000,
-    "require_visa": "No",
-    "us_citizenship": "Not Applicable",
-    "willing_to_relocate": "Yes",
-    "previously_worked_here": "No",
-    "education_level": "Bachelor's Degree",
-    "certifications": "None",
-    "gender": "Decline to self-identify",
-    "ethnicity": "Decline to self-identify",
-    "disability_status": "I don't wish to answer",
-    "veteran_status": "I am not a protected veteran",
-}
+from pathlib import Path
+
+_PROFILE_PATH = Path(__file__).parent.parent / "config" / "profile.json"
+
+
+def _load_profile():
+    """Load profile from config/profile.json if it exists, else use defaults."""
+    if _PROFILE_PATH.exists():
+        try:
+            return json.loads(_PROFILE_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Fallback to hardcoded defaults
+    return {
+        "name": "Vineet Kukreti",
+        "first_name": "Vineet",
+        "last_name": "Kukreti",
+        "email": "vineetkukreti34@gmail.com",
+        "phone": "+91-7983207219",
+        "resume_path": "assets/resumes/default/vineet_kukreti_resume.pdf",
+        "location": "India",
+        "experience_years": 2,
+        "current_title": "AI Engineer",
+        "linkedin": "https://linkedin.com/in/vineetkukreti",
+        "github": "https://github.com/vineetkukreti",
+        "website": "https://github.com/vineetkukreti",
+        "notice_period_days": 30,
+        "desired_salary": 1200000,
+        "current_salary": 800000,
+        "require_visa": "No",
+        "us_citizenship": "Not Applicable",
+        "willing_to_relocate": "Yes",
+        "previously_worked_here": "No",
+        "education_level": "Bachelor's Degree",
+        "certifications": "None",
+        "gender": "Decline to self-identify",
+        "ethnicity": "Decline to self-identify",
+        "disability_status": "I don't wish to answer",
+        "veteran_status": "I am not a protected veteran",
+    }
+
+
+PROFILE = _load_profile()
 
 RESUME_SKILLS = {
     # core skills (high weight)

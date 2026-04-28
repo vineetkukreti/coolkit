@@ -106,6 +106,8 @@ def api_get_leads(
     offset: int = 0,
 ):
     """List startup leads with filters, search, sorting, and pagination."""
+    limit = min(max(1, limit), 1000)
+    offset = max(0, offset)
     db_conn = _get_db()
     conditions = []
     params = []

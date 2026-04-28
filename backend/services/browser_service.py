@@ -65,7 +65,10 @@ def _run_on_browser_thread(fn, *args, timeout=60):
         _browser_thread.start()
     rq = _queue.Queue()
     _browser_cmd_q.put((fn, args, rq))
-    status, result = rq.get(timeout=timeout)
+    try:
+        status, result = rq.get(timeout=timeout)
+    except _queue.Empty:
+        raise TimeoutError(f"Browser thread did not respond within {timeout}s")
     if status == "error":
         raise result
     return result

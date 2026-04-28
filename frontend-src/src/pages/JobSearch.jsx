@@ -7,6 +7,7 @@ import {
   XCircle,
   ExternalLink,
   Undo2,
+  RefreshCw,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -87,6 +88,7 @@ export default function JobSearch() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState(null);
+  const [livenessRunning, setLivenessRunning] = useState(false);
 
   // Per-row action loading state: { [url]: 'apply' | 'skip' | 'queue' | null }
   const [rowLoading, setRowLoading] = useState({});
@@ -243,7 +245,24 @@ export default function JobSearch() {
             Search for jobs across platforms and manage your applications.
           </p>
         </div>
-
+        <button
+          onClick={async () => {
+            setLivenessRunning(true);
+            try {
+              const res = await api.livenessScan();
+              toast({ title: `Liveness scan complete`, description: `${res.checked || 0} checked, ${res.active || 0} active`, type: "success" });
+            } catch (e) {
+              toast({ title: "Scan failed", description: e.message, type: "error" });
+            } finally {
+              setLivenessRunning(false);
+            }
+          }}
+          disabled={livenessRunning}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary transition-colors disabled:opacity-50"
+        >
+          {livenessRunning ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+          {livenessRunning ? "Checking..." : "Check Active"}
+        </button>
       </div>
 
       {/* Search Form */}
