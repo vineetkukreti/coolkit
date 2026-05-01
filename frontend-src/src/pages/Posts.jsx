@@ -371,7 +371,11 @@ function ScraperPanel({ onScrapeDone }) {
             onScrapeDone?.();
           }
         }
-        prevLogCountRef.current = data.log_count || 0;
+        const sources = data.sources || {};
+        const sourceKeys = Object.keys(sources);
+        const activeSource = sourceKeys.find(k => sources[k].running) || sourceKeys[0];
+        const sourceData = activeSource ? sources[activeSource] : {};
+        prevLogCountRef.current = sourceData.log_count || 0;
       } catch {
         // ignore polling errors
       }
@@ -413,8 +417,13 @@ function ScraperPanel({ onScrapeDone }) {
     }
   };
 
-  const progress = status?.progress || {};
-  const logs = status?.log || [];
+  // Aggregate from status.sources - pick the active/first source
+  const sources = status?.sources || {};
+  const sourceKeys = Object.keys(sources);
+  const activeSourceKey = sourceKeys.find(k => sources[k].running) || sourceKeys[0];
+  const activeSourceData = activeSourceKey ? sources[activeSourceKey] : {};
+  const progress = activeSourceData.progress || {};
+  const logs = activeSourceData.log || [];
   const progressPct = progress.total_queries
     ? Math.round((progress.query_index / progress.total_queries) * 100)
     : 0;
@@ -585,7 +594,7 @@ export default function Posts() {
     setError(null);
     try {
       const params = { limit, offset };
-      if (domain) params.domain_relevance = domain;
+      if (domain) params.domain = domain.charAt(0).toUpperCase() + domain.slice(1);
       if (hiring !== "") params.is_hiring = hiring === "true";
       if (hasEmail) params.has_email = true;
       if (source) params.source = source;
@@ -611,6 +620,8 @@ export default function Posts() {
   const [bulkStatus, setBulkStatus] = useState(null);
   const bulkPollRef = useRef(null);
 
+  const _postsWorker = (data) => data?.posts_worker || data;
+
   const startBulkFind = async () => {
     try {
       await api.startEnrichment({ max_leads: 500, target: "posts" });
@@ -618,8 +629,9 @@ export default function Posts() {
       bulkPollRef.current = setInterval(async () => {
         try {
           const data = await api.getEnrichmentStatus();
-          setBulkStatus(data);
-          if (!data.running && data.summary) {
+          const pw = _postsWorker(data);
+          setBulkStatus(pw);
+          if (!pw.running && pw.summary) {
             clearInterval(bulkPollRef.current);
             bulkPollRef.current = null;
             setBulkRunning(false);
@@ -627,7 +639,7 @@ export default function Posts() {
             toast({
               type: "success",
               title: "Bulk email search done",
-              description: `Found emails for ${data.summary.enriched} posts (${data.summary.total_emails_found} emails total)`,
+              description: `Found emails for ${pw.summary.enriched} posts (${pw.summary.total_emails_found} emails total)`,
             });
           }
         } catch {}
@@ -638,7 +650,7 @@ export default function Posts() {
   };
 
   const stopBulkFind = async () => {
-    await api.stopEnrichment();
+    await api.stopEnrichment("posts");
     if (bulkPollRef.current) clearInterval(bulkPollRef.current);
     bulkPollRef.current = null;
     setBulkRunning(false);
@@ -650,14 +662,16 @@ export default function Posts() {
     const check = async () => {
       try {
         const data = await api.getEnrichmentStatus();
-        if (data.running && data.target === "posts") {
+        const pw = _postsWorker(data);
+        if (pw?.running) {
           setBulkRunning(true);
-          setBulkStatus(data);
+          setBulkStatus(pw);
           bulkPollRef.current = setInterval(async () => {
             try {
               const d = await api.getEnrichmentStatus();
-              setBulkStatus(d);
-              if (!d.running) {
+              const pw2 = _postsWorker(d);
+              setBulkStatus(pw2);
+              if (!pw2.running) {
                 clearInterval(bulkPollRef.current);
                 bulkPollRef.current = null;
                 setBulkRunning(false);

@@ -44,8 +44,8 @@ def _ensure_signals_table(conn: sqlite3.Connection):
             )
         """)
         conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[CompanySignals] Table creation failed: {e}")
 
 
 def _get_cached_signal(conn: sqlite3.Connection, company: str) -> dict | None:
@@ -79,8 +79,8 @@ def _get_cached_signal(conn: sqlite3.Connection, company: str) -> dict | None:
             }
             _signal_cache[key] = result
             return result
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[CompanySignals] Cache read failed for {company}: {e}")
 
     return None
 
@@ -101,8 +101,8 @@ def _save_signal(conn: sqlite3.Connection, company: str, result: dict):
              json.dumps(result["reasons"]), result["cached_at"]),
         )
         conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[CompanySignals] Cache write failed for {company}: {e}")
 
 
 # ─── Signal Classification ──────────────────────────────────────────────────

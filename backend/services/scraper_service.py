@@ -18,10 +18,11 @@ from services.browser_service import browser_state, _run_on_browser_thread
 # ───────────────────────────────────────────────
 
 scraper_state = {
-    "running": False,
-    "status": "idle",  # idle | running | done | error
+    "running": False,       # computed: True if any source is active
+    "status": "idle",       # idle | running | done | error
     "started_at": None,
-    "sources": {},     # per-source state: { "linkedin": { status, log, progress }, ... }
+    "sources": {},          # per-source state: { "linkedin": { status, log, progress }, ... }
+    "active_sources": set(),  # sources currently being scraped (for overlap detection)
 }
 
 _scraper_lock = threading.Lock()
@@ -421,12 +422,13 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
     with _scraper_lock:
         scraper_state["running"] = True
         scraper_state["status"] = "running"
-        scraper_state["started_at"] = _dt.datetime.now().isoformat()
-        scraper_state["sources"] = {}
+        if not scraper_state.get("started_at"):
+            scraper_state["started_at"] = _dt.datetime.now().isoformat()
 
-        # Initialize per-source state
+        # Initialize per-source state (don't wipe existing sources from other coordinators)
         for source in sources:
             scraper_state["sources"][source] = _init_source_state()
+            scraper_state["active_sources"].add(source)
 
     # Compute per-source budgets
     per_source = max(50, max_posts // len(sources)) if len(sources) > 1 else max_posts
@@ -590,9 +592,14 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
     for t in threads:
         t.join()
 
-    # Final state
+    # Remove this coordinator's sources from active set
     with _scraper_lock:
-        scraper_state["status"] = "error" if all(
-            s["status"] == "error" for s in scraper_state["sources"].values()
-        ) else "done"
-        scraper_state["running"] = False
+        for source in sources:
+            scraper_state["active_sources"].discard(source)
+        # Only set running=False if no other coordinator is still active
+        if not scraper_state["active_sources"]:
+            scraper_state["status"] = "error" if all(
+                s["status"] == "error" for s in scraper_state["sources"].values()
+            ) else "done"
+            scraper_state["running"] = False
+            scraper_state["started_at"] = None

@@ -1,8 +1,8 @@
 """Unified post extraction pipeline — replaces 4 duplicated ~30-line blocks."""
 
 from extractors.text import (
-    extract_emails, extract_roles, extract_location,
-    extract_experience, normalize_experience, score_domain_relevance,
+    extract_emails, extract_phones, extract_hashtags, extract_skills, extract_roles,
+    extract_location, extract_experience, normalize_experience, score_domain_relevance,
     is_hiring_post,
 )
 from extractors.fitness import is_good_fit
@@ -76,6 +76,7 @@ def process_single_post(
     if experience and not any(c.isdigit() for c in experience[:3]):
         experience = normalize_experience(experience)
 
+    work_mode = llm.get("work_mode", "")
     domain = score_domain_relevance(content)
 
     # Fitness check
@@ -98,8 +99,12 @@ def process_single_post(
         "role_hiring_for": roles,
         "company":         company,
         "email":           emails,
+        "phone":           extract_phones(content),
+        "hashtags":        extract_hashtags(content),
+        "skills":          extract_skills(content),
         "location":        location,
         "experience":      experience,
+        "work_mode":       work_mode,
         "domain_relevance": domain,
         "post_date":       raw.get("postDate", raw.get("post_date", "")),
         "keyword_matched": query,

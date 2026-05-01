@@ -330,9 +330,12 @@ export default function Scraper() {
       await api.startScraper({ max_posts: maxPosts, sources: activeSources })
       setScraping(true)
       setScraperStatus('running')
-      setSourcesState({})
-      setResults(null)
-      lastLogCountsRef.current = {}
+      // Don't wipe existing sourcesState — new sources merge in from polling
+      if (!scraping) {
+        setSourcesState({})
+        setResults(null)
+        lastLogCountsRef.current = {}
+      }
       setCurrentStep(2)
       const sourceNames = activeSources.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')
       toast({ type: 'success', title: 'Scraping started', description: `Running ${sourceNames} in parallel...` })
@@ -525,7 +528,7 @@ export default function Scraper() {
             )}
           </div>
 
-          {currentStep >= 1 && currentStep <= 1 && (
+          {currentStep === 1 && (
             <div className="px-5 py-5 space-y-5">
               {/* Max posts input */}
               <div>
@@ -650,7 +653,7 @@ export default function Scraper() {
         {/* ────────────────────────────────────────── */}
         {/* STEP 3: Parallel Extraction Terminals       */}
         {/* ────────────────────────────────────────── */}
-        {currentStep >= 2 && (
+        {(currentStep >= 2 || (currentStep === 1 && scraping)) && (
           <div className="space-y-4">
             {/* Header with stop button */}
             <div className="flex items-center justify-between">
@@ -667,15 +670,26 @@ export default function Scraper() {
                   </p>
                 </div>
               </div>
-              {scraping && (
-                <button
-                  onClick={handleStopScraping}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-danger hover:bg-danger/90 text-white text-xs font-medium rounded-lg transition-colors"
-                >
-                  <Square size={13} />
-                  Stop All
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {scraping && (
+                  <>
+                    <button
+                      onClick={() => setCurrentStep(1)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-accent/10 hover:bg-accent/20 text-accent text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <Play size={13} />
+                      Add Sources
+                    </button>
+                    <button
+                      onClick={handleStopScraping}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-danger hover:bg-danger/90 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <Square size={13} />
+                      Stop All
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* 2x2 Terminal Grid */}

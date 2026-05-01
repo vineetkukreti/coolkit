@@ -274,8 +274,6 @@ function SentEmailRow({ item }) {
           <option value="sent">Sent</option>
           <option value="replied">Replied</option>
           <option value="bounced">Bounced</option>
-          <option value="no-reply">No Reply</option>
-          <option value="interviewing">Interview</option>
         </select>
         {expanded ? <ChevronUp size={12} className="text-fg-muted shrink-0" /> : <ChevronDown size={12} className="text-fg-muted shrink-0" />}
       </div>
@@ -389,14 +387,18 @@ export default function EmailOutreach() {
   const [attachResume, setAttachResume] = useState(true);
   const [generatingId, setGeneratingId] = useState(null);
 
-  // Background worker state (polled)
-  const [worker, setWorker] = useState({ running: false, task: null, current: 0, total: 0, current_label: "", succeeded: 0, failed: 0 });
+  // Background worker states (polled) — separate so generate + send can run in parallel
+  const emptyWorker = { running: false, task: null, current: 0, total: 0, current_label: "", succeeded: 0, failed: 0, skipped: 0 };
+  const [worker, setWorker] = useState(emptyWorker); // legacy combined
+  const [genWorker, setGenWorker] = useState(emptyWorker);
+  const [sendWorker, setSendWorker] = useState(emptyWorker);
   const pollRef = useRef(null);
 
   // Confirmation modals
   const [bulkGenConfirm, setBulkGenConfirm] = useState(false);
   const [bulkSendConfirm, setBulkSendConfirm] = useState(false);
 
+  const [liveDraftCount, setLiveDraftCount] = useState(null); // from worker-status polling
   const [imapPolling, setImapPolling] = useState(false);
 
   // Tabs & search
@@ -437,8 +439,21 @@ export default function EmailOutreach() {
   useEffect(() => {
     loadPosts();
     loadHistory();
+    // Immediate poll to catch running workers without 2s delay (survives page refresh)
+    api.getEmailWorkerStatus().then(ws => {
+      setWorker(ws);
+      if (ws.generate) setGenWorker(ws.generate);
+      if (ws.send) setSendWorker(ws.send);
+      if (ws.draft_count != null) setLiveDraftCount(ws.draft_count);
+      prevRunningRef.current = ws.running;
+      // If worker just finished (missed the transition), refresh data
+      if (!ws.running && ws.total > 0 && (ws.succeeded + ws.failed) > 0) {
+        loadPosts();
+        loadHistory();
+      }
+    }).catch(() => {});
     startPolling();
-    api.getImapStatus().then(d => setImapPolling(d?.polling || false)).catch(() => {});
+    api.getImapStatus().then(d => setImapPolling(d?.running || false)).catch(() => {});
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
@@ -450,6 +465,9 @@ export default function EmailOutreach() {
       try {
         const ws = await api.getEmailWorkerStatus();
         setWorker(ws);
+        if (ws.generate) setGenWorker(ws.generate);
+        if (ws.send) setSendWorker(ws.send);
+        if (ws.draft_count != null) setLiveDraftCount(ws.draft_count);
         // Auto-refresh only on transition: running → finished (not every tick)
         if (prevRunningRef.current && !ws.running && ws.total > 0) {
           loadPosts();
@@ -542,11 +560,11 @@ export default function EmailOutreach() {
     }
   }
 
-  // Stop worker
-  async function handleStopWorker() {
+  // Stop worker — optionally stop just one
+  async function handleStopWorker(task) {
     try {
-      await api.stopEmailWorker();
-      toast({ type: "info", title: "Worker stopped" });
+      await api.stopEmailWorker(task);
+      toast({ type: "info", title: task ? `${task === "generating" ? "Generation" : "Sending"} stopped` : "Workers stopped" });
     } catch { /* ignore */ }
   }
 
@@ -570,10 +588,13 @@ export default function EmailOutreach() {
 
   // Stats
   const totalPosts = posts.length;
-  const draftCount = posts.filter((p) => p.email_status === "draft").length;
+  const localDraftCount = posts.filter((p) => p.email_status === "draft").length;
+  const draftCount = liveDraftCount != null ? liveDraftCount : localDraftCount;
   const sentCount = posts.filter((p) => p.email_status === "sent").length;
   const pendingCount = totalPosts - draftCount - sentCount;
   const workerPct = worker.total > 0 ? Math.round((worker.current / worker.total) * 100) : 0;
+  const genPct = genWorker.total > 0 ? Math.round((genWorker.current / genWorker.total) * 100) : 0;
+  const sendPct = sendWorker.total > 0 ? Math.round((sendWorker.current / sendWorker.total) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-bg-primary text-fg-primary font-sans">
@@ -644,33 +665,56 @@ export default function EmailOutreach() {
           </div>
         </div>
 
-        {/* Background worker progress bar */}
-        {worker.running && (
-          <div className="mb-4 bg-bg-secondary rounded-xl border border-border px-4 py-3">
+        {/* Background worker progress bars — one per worker, can show both simultaneously */}
+        {genWorker.running && (
+          <div className="mb-2 bg-bg-secondary rounded-xl border border-border px-4 py-3">
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-2 text-sm">
                 <RefreshCw size={13} className="animate-spin text-accent" />
-                <span className="text-fg-primary font-medium">
-                  {worker.task === "generating" ? "Generating emails" : "Sending emails"}
-                </span>
+                <span className="text-fg-primary font-medium">Generating emails</span>
                 <span className="text-fg-muted text-xs">
-                  {worker.current}/{worker.total} — {worker.current_label}
+                  {genWorker.current}/{genWorker.total} — {genWorker.current_label}
                 </span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-fg-muted">{workerPct}% — {worker.succeeded} ok, {worker.failed} failed</span>
-                <button onClick={handleStopWorker}
+                <span className="text-xs text-fg-muted">{genPct}% — {genWorker.succeeded} ok{genWorker.skipped > 0 ? `, ${genWorker.skipped} skipped` : ""}{genWorker.failed > 0 ? `, ${genWorker.failed} failed` : ""}</span>
+                <button onClick={() => handleStopWorker("generating")}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-danger/10 text-danger text-xs hover:bg-danger/20 transition-colors">
                   <Square size={11} /> Stop
                 </button>
               </div>
             </div>
             <div className="w-full h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all duration-500 ${worker.task === "sending" ? "bg-success" : "bg-accent"}`}
-                style={{ width: `${workerPct}%` }} />
+              <div className="h-full rounded-full transition-all duration-500 bg-accent"
+                style={{ width: `${genPct}%` }} />
             </div>
           </div>
         )}
+        {sendWorker.running && (
+          <div className="mb-2 bg-bg-secondary rounded-xl border border-border px-4 py-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2 text-sm">
+                <RefreshCw size={13} className="animate-spin text-success" />
+                <span className="text-fg-primary font-medium">Sending emails</span>
+                <span className="text-fg-muted text-xs">
+                  {sendWorker.current}/{sendWorker.total} — {sendWorker.current_label}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-fg-muted">{sendPct}% — {sendWorker.succeeded} ok{sendWorker.skipped > 0 ? `, ${sendWorker.skipped} skipped` : ""}{sendWorker.failed > 0 ? `, ${sendWorker.failed} failed` : ""}</span>
+                <button onClick={() => handleStopWorker("sending")}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-danger/10 text-danger text-xs hover:bg-danger/20 transition-colors">
+                  <Square size={11} /> Stop
+                </button>
+              </div>
+            </div>
+            <div className="w-full h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-500 bg-success"
+                style={{ width: `${sendPct}%` }} />
+            </div>
+          </div>
+        )}
+        {(genWorker.running || sendWorker.running) && <div className="mb-2" />}
 
         {/* Search bar */}
         <div className="relative mb-4">
@@ -736,11 +780,11 @@ export default function EmailOutreach() {
           </label>
 
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => setBulkGenConfirm(true)} disabled={worker.running}
+            <button onClick={() => setBulkGenConfirm(true)} disabled={genWorker.running}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary disabled:opacity-50 transition-colors">
               <Sparkles size={14} /> Generate All
             </button>
-            <button onClick={() => setBulkSendConfirm(true)} disabled={worker.running || draftCount === 0}
+            <button onClick={() => setBulkSendConfirm(true)} disabled={sendWorker.running || draftCount === 0}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
               <Zap size={14} /> Send All Drafts ({draftCount})
             </button>

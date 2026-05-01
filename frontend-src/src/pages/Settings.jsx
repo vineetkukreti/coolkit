@@ -416,7 +416,7 @@ function ResumeStatusCard() {
             <div>
               <p className="text-sm text-fg-primary font-medium">Resume uploaded</p>
               <p className="text-xs text-fg-muted">
-                {status.filename || 'resume.pdf'} · {status.size ? `${(status.size / 1024).toFixed(0)} KB` : ''}
+                {status.filename || 'resume.pdf'} · {status.size_kb ? `${status.size_kb.toFixed(0)} KB` : ''}
               </p>
             </div>
           </>

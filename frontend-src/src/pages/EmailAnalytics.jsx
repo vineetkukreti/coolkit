@@ -314,7 +314,7 @@ function ABTestingTab() {
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <p className="text-fg-muted text-xs uppercase tracking-wider">Sent</p>
-                <p className="text-2xl font-bold text-fg-primary font-mono mt-1">{v.total || 0}</p>
+                <p className="text-2xl font-bold text-fg-primary font-mono mt-1">{v.sent || 0}</p>
               </div>
               <div>
                 <p className="text-fg-muted text-xs uppercase tracking-wider">Replies</p>
@@ -322,18 +322,18 @@ function ABTestingTab() {
               </div>
               <div>
                 <p className="text-fg-muted text-xs uppercase tracking-wider">Rate</p>
-                <p className="text-2xl font-bold text-accent font-mono mt-1">{v.total > 0 ? ((v.replies / v.total) * 100).toFixed(1) : '0'}%</p>
+                <p className="text-2xl font-bold text-accent font-mono mt-1">{v.sent > 0 ? ((v.replies / v.sent) * 100).toFixed(1) : '0'}%</p>
               </div>
             </div>
           </div>
         ))}
       </div>
-      {stats.winner?.has_winner && (
+      {(stats.winner?.variant === 'A' || stats.winner?.variant === 'B') && (
         <div className="bg-success-bg border border-success/20 rounded-xl p-4 flex items-center gap-3">
           <Trophy size={18} className="text-success" />
           <div>
-            <p className="text-fg-primary text-sm font-semibold">Winner: Variant {stats.winner.winner}</p>
-            <p className="text-fg-muted text-xs">{stats.winner.margin}% better performance with {stats.winner.confidence} confidence</p>
+            <p className="text-fg-primary text-sm font-semibold">Winner: Variant {stats.winner.variant}</p>
+            <p className="text-fg-muted text-xs">{stats.winner.reason}</p>
           </div>
         </div>
       )}
@@ -350,10 +350,10 @@ function SendTimeCard() {
   }, [])
 
   if (loading) return <div className="flex items-center gap-2 py-6 justify-center text-fg-muted text-sm"><Loader2 size={14} className="animate-spin" /> Loading send time stats...</div>
-  if (!data || (!data.by_hour && !data.by_day)) return null
+  if (!data || (!data.hourly && !data.daily)) return null
 
-  const hours = data.by_hour || {}
-  const days = data.by_day || {}
+  const hours = Object.fromEntries((data.hourly || []).map(h => [h.hour, h.rate]))
+  const days = Object.fromEntries((data.daily || []).map(d => [d.day, d.rate]))
   const maxHour = Math.max(...Object.values(hours), 1)
   const maxDay = Math.max(...Object.values(days), 1)
 
@@ -361,8 +361,8 @@ function SendTimeCard() {
     <div className="grid grid-cols-2 gap-4 mt-6">
       <div className="bg-bg-secondary rounded-xl border border-border p-5">
         <h3 className="text-sm font-semibold text-fg-primary mb-3">Reply Rate by Hour</h3>
-        {data.best_hour != null && (
-          <p className="text-xs text-success mb-3">Best hour: <strong>{data.best_hour}:00</strong></p>
+        {data.recommendation?.best_hour != null && (
+          <p className="text-xs text-success mb-3">Best hour: <strong>{data.recommendation.best_hour}:00</strong></p>
         )}
         <div className="space-y-1">
           {Object.entries(hours).slice(0, 12).map(([hour, rate]) => (
@@ -378,8 +378,8 @@ function SendTimeCard() {
       </div>
       <div className="bg-bg-secondary rounded-xl border border-border p-5">
         <h3 className="text-sm font-semibold text-fg-primary mb-3">Reply Rate by Day</h3>
-        {data.best_day && (
-          <p className="text-xs text-success mb-3">Best day: <strong>{data.best_day}</strong></p>
+        {data.recommendation?.best_day && (
+          <p className="text-xs text-success mb-3">Best day: <strong>{data.recommendation.best_day}</strong></p>
         )}
         <div className="space-y-1.5">
           {Object.entries(days).map(([day, rate]) => (
@@ -412,21 +412,24 @@ function AddressQualityCard() {
       <h3 className="text-sm font-semibold text-fg-primary mb-3">Address Quality Report</h3>
       <div className="grid grid-cols-3 gap-4">
         <div className="text-center">
-          <p className="text-2xl font-bold text-success font-mono">{data.valid || 0}</p>
-          <p className="text-xs text-fg-muted mt-1">Valid</p>
-        </div>
-        <div className="text-center">
-          <p className="text-2xl font-bold text-warning font-mono">{data.generic || 0}</p>
+          <p className="text-2xl font-bold text-warning font-mono">{data.generic_count || 0}</p>
           <p className="text-xs text-fg-muted mt-1">Generic</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-bold text-danger font-mono">{data.bounced || 0}</p>
+          <p className="text-2xl font-bold text-danger font-mono">{data.bounced_count || 0}</p>
           <p className="text-xs text-fg-muted mt-1">Bounced</p>
         </div>
+        <div className="text-center">
+          <p className="text-2xl font-bold text-info font-mono">{data.multi_count || 0}</p>
+          <p className="text-xs text-fg-muted mt-1">Multi-address</p>
+        </div>
       </div>
-      {data.issues?.length > 0 && (
+      {((data.generic?.length > 0) || (data.bounced?.length > 0) || (data.multi_address?.length > 0)) && (
         <div className="mt-3 max-h-32 overflow-y-auto">
-          {data.issues.slice(0, 10).map((issue, i) => (
+          {[...(data.generic || []).map(e => ({ email: e, reason: 'Generic address' })),
+            ...(data.bounced || []).map(e => ({ email: e, reason: 'Bounced' })),
+            ...(data.multi_address || []).map(e => ({ email: e, reason: 'Multi-address' }))
+          ].slice(0, 10).map((issue, i) => (
             <div key={i} className="flex items-center gap-2 py-1 text-xs">
               <AlertCircle size={11} className="text-warning shrink-0" />
               <span className="text-fg-secondary truncate">{issue.email}</span>
@@ -536,7 +539,7 @@ export default function EmailAnalytics() {
               onClick={async () => {
                 try {
                   const res = await api.checkBounces();
-                  toast({ title: `Found ${res.bounces || 0} bounces`, type: res.bounces > 0 ? "warning" : "success" });
+                  toast({ title: `Found ${res.replies_found || 0} bounces`, type: res.replies_found > 0 ? "warning" : "success" });
                   load();
                 } catch (e) {
                   toast({ title: "Bounce check failed", description: e.message, type: "error" });

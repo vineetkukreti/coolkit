@@ -9,13 +9,14 @@ from llm.client import llm, OLLAMA_MODEL, GEMINI_MODEL
 # ─── Prompts ─────────────────────────────────────────────────────────────────
 
 _LLM_PROMPT = (
-    "Extract hiring information from this LinkedIn post.\n"
+    "Extract hiring information from this LinkedIn job post.\n"
     "Rules:\n"
-    "- role: Pick ONE from: AI Engineer, ML Engineer, GenAI Engineer, Agentic AI Engineer. If none fit exactly, write the actual role title from the post.\n"
-    "- company: Company name hiring for. Leave empty if unclear.\n"
-    "- location: City/country or Remote. Leave empty if not mentioned.\n"
-    "- experience: Extract ONLY if the post explicitly states years of experience (e.g. '2+ years', '3-5 years'). Write as '2 years' or '3-5 years'. If the post says 'fresher' or 'entry level', write '0 years'. If experience is NOT mentioned at all, leave EMPTY string. Do NOT guess.\n"
-    "Reply ONLY with valid JSON, nothing else.\n\n"
+    "- role: The EXACT job title being hired for. E.g. 'AI Engineer', 'GenAI Engineer', 'ML Engineer', 'Agentic AI Engineer'. Use the title from the post.\n"
+    "- company: Company name that is hiring. Look for 'at', '@', company names before 'is hiring'. Leave empty if unclear.\n"
+    "- location: City name, 'Remote', 'Hybrid', or 'Pan India'. Extract ALL mentioned cities separated by ' / '. E.g. 'Pune / Bangalore / Remote'. Common Indian cities: Bangalore, Mumbai, Delhi, Hyderabad, Pune, Chennai, Noida, Gurgaon, Ahmedabad, Surat, Trivandrum, Gandhinagar, Kolkata. Leave empty if not mentioned.\n"
+    "- experience: Extract ONLY if explicitly stated. Write as '2+ years' or '3-5 years'. Look for patterns like '2–3 Years', '4-6Years', '2+ years', 'Experience: 3+'. If 'fresher' or 'entry level', write '0 years'. If NOT mentioned, leave EMPTY string. Do NOT guess.\n"
+    "- work_mode: 'Remote', 'Hybrid', 'WFO' (work from office), 'On-site', or empty. Look for keywords like 'Work From Office', 'WFO', 'On-site', 'Hybrid', 'Remote'.\n"
+    "Reply ONLY with valid JSON: {\"role\":\"\",\"company\":\"\",\"location\":\"\",\"experience\":\"\",\"work_mode\":\"\"}\n\n"
 )
 
 _EMAIL_DEOBFUSCATION_PROMPT = (
@@ -98,15 +99,15 @@ def ollama_available() -> bool:
 
 def ollama_extract(content: str) -> dict:
     """Extract job info using local Ollama."""
-    prompt = _LLM_PROMPT + f"Post: {content[:500]}\n\n" + 'JSON: {"role":"","company":"","location":"","experience":""}'
-    raw = llm.call_ollama(prompt, max_tokens=80)
+    prompt = _LLM_PROMPT + f"Post: {content[:500]}\n\n" + 'JSON: {"role":"","company":"","location":"","experience":"","work_mode":""}'
+    raw = llm.call_ollama(prompt, max_tokens=120)
     return _parse_llm_response(raw) if raw else {}
 
 
 def gemini_extract(content: str) -> dict:
     """Extract job info using Gemini API."""
-    prompt = _LLM_PROMPT + f"Post: {content[:1000]}\n\n" + 'JSON: {"role":"","company":"","location":"","experience":""}'
-    raw = llm.call_gemini(prompt, max_tokens=150)
+    prompt = _LLM_PROMPT + f"Post: {content[:1500]}\n\n" + 'JSON: {"role":"","company":"","location":"","experience":"","work_mode":""}'
+    raw = llm.call_gemini(prompt, max_tokens=200)
     return _parse_llm_response(raw) if raw else {}
 
 

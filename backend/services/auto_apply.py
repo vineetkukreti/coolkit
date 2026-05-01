@@ -754,7 +754,7 @@ class AutoApplyEngine:
         # Liveness check: skip expired/dead postings (save quota)
         # Only check if the post has a URL and hasn't been checked recently
         is_live = job.get("is_live")
-        if is_live is not None and is_live == 0:
+        if is_live is not None and str(is_live) == "0":
             return False, "expired-posting"
         if is_live is None and url:
             # Quick liveness check for unchecked posts

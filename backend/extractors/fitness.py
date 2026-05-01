@@ -56,11 +56,12 @@ def experience_to_years(exp: str) -> tuple[int | None, int | None]:
     if not exp:
         return None, None
     exp = exp.lower()
-    if "fresher" in exp or exp.startswith("0"):
-        return 0, 0
+    # Check range pattern first (e.g. "0-2 years") before fresher check
     m = re.search(r'(\d+)\s*[-\u2013to]+\s*(\d+)', exp)
     if m:
         return int(m.group(1)), int(m.group(2))
+    if "fresher" in exp or (exp.startswith("0") and "+" not in exp):
+        return 0, 0
     m = re.search(r'(\d+)\+?', exp)
     if m:
         n = int(m.group(1))

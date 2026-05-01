@@ -49,7 +49,7 @@ def find_connections(conn: sqlite3.Connection, company: str) -> dict:
         rows = conn.execute("""
             SELECT DISTINCT p.author_name, p.author_profile, p.author_headline, p.email
             FROM posts p
-            WHERE LOWER(p.author_headline) LIKE ? OR LOWER(p.content) LIKE ?
+            WHERE (LOWER(p.author_headline) LIKE ? OR LOWER(p.content) LIKE ?)
             AND p.author_name IS NOT NULL AND p.author_name != ''
             LIMIT 10
         """, (f"%{company_lower}%", f"%{company_lower}%hiring%")).fetchall()
@@ -69,8 +69,8 @@ def find_connections(conn: sqlite3.Connection, company: str) -> dict:
                     "source": "scraped_post",
                     "detail": f"Posted about hiring at {company}",
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ReferralDetector] Query failed for {company}: {e}")
 
     # 2. Check pipeline leads at this company
     try:
@@ -94,8 +94,8 @@ def find_connections(conn: sqlite3.Connection, company: str) -> dict:
                 "source": "pipeline_lead",
                 "detail": f"Pipeline stage: {r.get('stage', 'unknown')}",
             })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ReferralDetector] Query failed for {company}: {e}")
 
     # 3. Check email outreach history (people we've already emailed)
     try:
@@ -124,8 +124,8 @@ def find_connections(conn: sqlite3.Connection, company: str) -> dict:
                     "source": "email_outreach",
                     "detail": f"Previously emailed (status: {r.get('status', '?')})",
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ReferralDetector] Query failed for {company}: {e}")
 
     # 4. Check startup leads database
     try:
@@ -151,8 +151,8 @@ def find_connections(conn: sqlite3.Connection, company: str) -> dict:
                     "source": "startup_leads",
                     "detail": f"Company lead — {r.get('website', '')}",
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ReferralDetector] Query failed for {company}: {e}")
 
     # Deduplicate by email
     seen_emails = set()

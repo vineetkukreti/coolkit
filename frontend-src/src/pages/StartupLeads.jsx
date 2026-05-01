@@ -90,6 +90,13 @@ function EmailFinderPanel({ onComplete }) {
   const [target, setTarget] = useState('startup_leads')
   const pollRef = useRef(null)
 
+  // Extract the worker state for the selected target
+  const _targetWorker = (data) => {
+    if (!data) return data
+    const w = target === 'posts' ? data.posts_worker : data.leads_worker
+    return w || data  // fallback to legacy flat fields
+  }
+
   const startEnrichment = async () => {
     try {
       await api.startEnrichment({ max_leads: maxLeads, target })
@@ -97,7 +104,8 @@ function EmailFinderPanel({ onComplete }) {
         try {
           const data = await api.getEnrichmentStatus()
           setEnrichStatus(data)
-          if (!data.running && data.summary) {
+          const w = _targetWorker(data)
+          if (!w.running && w.summary) {
             clearInterval(pollRef.current)
             pollRef.current = null
             if (onComplete) onComplete()
@@ -111,7 +119,7 @@ function EmailFinderPanel({ onComplete }) {
 
   const stopEnrichment = async () => {
     try {
-      await api.stopEnrichment()
+      await api.stopEnrichment(target)
       if (pollRef.current) {
         clearInterval(pollRef.current)
         pollRef.current = null
@@ -124,13 +132,15 @@ function EmailFinderPanel({ onComplete }) {
     const check = async () => {
       try {
         const data = await api.getEnrichmentStatus()
-        if (data.running) {
+        const w = _targetWorker(data)
+        if (w?.running) {
           setEnrichStatus(data)
           pollRef.current = setInterval(async () => {
             try {
               const data2 = await api.getEnrichmentStatus()
               setEnrichStatus(data2)
-              if (!data2.running) {
+              const w2 = _targetWorker(data2)
+              if (!w2.running) {
                 clearInterval(pollRef.current)
                 pollRef.current = null
                 if (onComplete) onComplete()
@@ -144,8 +154,10 @@ function EmailFinderPanel({ onComplete }) {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  const isRunning = enrichStatus?.running
-  const progress = enrichStatus?.total ? Math.round((enrichStatus.current / enrichStatus.total) * 100) : 0
+  // Show the worker for the currently selected target
+  const activeWorker = _targetWorker(enrichStatus)
+  const isRunning = activeWorker?.running
+  const progress = activeWorker?.total ? Math.round((activeWorker.current / activeWorker.total) * 100) : 0
 
   return (
     <div className="bg-bg-secondary border border-border rounded-2xl p-5">
@@ -205,26 +217,26 @@ function EmailFinderPanel({ onComplete }) {
               />
             </div>
             <span className="text-xs font-mono text-fg-secondary w-16 text-right">
-              {enrichStatus.current}/{enrichStatus.total}
+              {activeWorker.current}/{activeWorker.total}
             </span>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-fg-muted">
             <Loader2 size={12} className="animate-spin text-accent" />
-            <span>Searching: <span className="text-fg-primary font-medium">{enrichStatus.current_company}</span></span>
+            <span>Searching: <span className="text-fg-primary font-medium">{activeWorker.current_company}</span></span>
           </div>
 
           {/* Stats row */}
           <div className="flex gap-4 text-xs">
             <span className="flex items-center gap-1 text-success">
-              <CheckCircle size={11} /> {enrichStatus.found || 0} found
+              <CheckCircle size={11} /> {activeWorker.found || 0} found
             </span>
             <span className="flex items-center gap-1 text-fg-muted">
-              <X size={11} /> {enrichStatus.not_found || 0} not found
+              <X size={11} /> {activeWorker.not_found || 0} not found
             </span>
-            {enrichStatus.errors > 0 && (
+            {activeWorker.errors > 0 && (
               <span className="flex items-center gap-1 text-danger">
-                <AlertCircle size={11} /> {enrichStatus.errors} errors
+                <AlertCircle size={11} /> {activeWorker.errors} errors
               </span>
             )}
           </div>
@@ -232,10 +244,10 @@ function EmailFinderPanel({ onComplete }) {
       )}
 
       {/* Live results feed */}
-      {enrichStatus?.results?.length > 0 && (
+      {activeWorker?.results?.length > 0 && (
         <div className="mt-3 max-h-48 overflow-y-auto border border-border rounded-lg bg-bg-primary">
           <div className="divide-y divide-border">
-            {[...enrichStatus.results].reverse().slice(0, 20).map((r, i) => (
+            {[...(activeWorker?.results || [])].reverse().slice(0, 20).map((r, i) => (
               <div key={i} className="px-3 py-1.5 text-xs flex items-center gap-2">
                 {r.type === 'found' && (
                   <>

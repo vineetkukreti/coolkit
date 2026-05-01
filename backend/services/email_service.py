@@ -43,8 +43,9 @@ SMTP_CONFIG = {
 # Email blocklist (never send outreach to these)
 # ───────────────────────────────────────────────
 
-EMAIL_BLOCKLIST = [
-    "southguild",          # current employer
+# Domains that must never receive outreach (exact domain match only)
+BLOCKED_DOMAINS = {
+    "southguild.tech",    # current employer
     "lnkd.in",            # LinkedIn shortened URLs (not real emails)
     "hubs.li",            # HubSpot tracking URLs (not real emails)
     "oscarhealth.com",    # rejects external email
@@ -58,13 +59,196 @@ EMAIL_BLOCKLIST = [
     "synextra.co.uk",     # bounces
     "captionhealth.com",  # bounces
     "nimblercm.com",      # bounces
+    "vodafoneidea.com",   # bounces
+    "anantamhr.com",      # bounces
+    "cgi.com",            # bounces (malformed addresses)
+    "costaffglobal.com",  # bounces
+    "nlb.tech.com",       # bounces (fake recruiter domain)
+    "themuse.com",        # bounces (job board, not real company)
+    "accentureglobalco.com",  # bounces (fake/typo Accenture domain)
+}
+
+# Company keywords — matched against company name only (word boundary, not substring)
+BLOCKED_COMPANIES = [
+    "southguild",          # current employer
 ]
+
+# Keep legacy name for any external imports
+EMAIL_BLOCKLIST = list(BLOCKED_DOMAINS) + BLOCKED_COMPANIES
 
 
 def _is_blocked_email(email: str, company: str = "") -> bool:
-    """Check if email or company matches blocklist (current employer, etc)."""
-    check = f"{email} {company}".lower()
-    return any(b in check for b in EMAIL_BLOCKLIST)
+    """Check if email domain is blocked or company is current employer.
+
+    - Domains: exact match on email domain (no substring risk)
+    - Companies: word-boundary match on company name only
+    """
+    email = email.lower().strip()
+
+    # Extract domain from email (handle comma-separated)
+    if "," in email:
+        email = email.split(",")[0].strip()
+    if "@" in email:
+        domain = email.rsplit("@", 1)[1]
+        if domain in BLOCKED_DOMAINS:
+            return True
+
+    # Company check: only match if the keyword appears as a standalone word
+    if company:
+        company_lower = company.lower()
+        for kw in BLOCKED_COMPANIES:
+            if kw in company_lower.split() or kw in company_lower.replace("-", " ").replace("_", " ").split():
+                return True
+
+    return False
+
+
+# ───────────────────────────────────────────────
+# Bounce history — learn from past failures
+# ───────────────────────────────────────────────
+
+# Domain bounce threshold: if a domain has this many bounces, auto-block it
+BOUNCE_DOMAIN_THRESHOLD = 2
+
+# Major email providers — never block the whole domain, only individual addresses
+MAJOR_PROVIDERS = {
+    "gmail.com", "yahoo.com", "yahoo.in", "outlook.com", "hotmail.com",
+    "live.com", "aol.com", "icloud.com", "protonmail.com", "zoho.com",
+    "rediffmail.com", "yandex.com", "mail.com",
+}
+
+# Cache for bounced domains (refreshed per bulk run)
+_bounced_domains_cache = {"domains": set(), "emails": set(), "loaded_at": 0}
+_bounce_cache_lock = threading.Lock()
+
+
+def _refresh_bounce_cache(conn=None):
+    """Load bounced emails and domains from DB into memory cache.
+    Refreshes at most once per 60 seconds.
+    """
+    with _bounce_cache_lock:
+        if time.time() - _bounced_domains_cache["loaded_at"] < 60:
+            return  # fresh enough
+
+    close_conn = False
+    if conn is None:
+        conn = init_db()
+        close_conn = True
+
+    try:
+        # Get all bounced email addresses
+        bounced_rows = conn.execute(
+            "SELECT DISTINCT recipient_email FROM email_outreach "
+            "WHERE error_type = 'bounced' OR (status = 'failed' AND error_type = 'invalid_address')"
+        ).fetchall()
+        bounced_emails = set()
+        for r in bounced_rows:
+            email = r["recipient_email"].lower().strip()
+            if "," in email:
+                email = email.split(",")[0].strip()
+            bounced_emails.add(email)
+
+        # Count bounces per domain, auto-block domains with 2+ bounces
+        domain_counts = conn.execute(
+            """SELECT SUBSTR(
+                CASE WHEN recipient_email LIKE '%,%'
+                     THEN TRIM(SUBSTR(recipient_email, 1, INSTR(recipient_email, ',') - 1))
+                     ELSE TRIM(recipient_email)
+                END,
+                INSTR(
+                    CASE WHEN recipient_email LIKE '%,%'
+                         THEN TRIM(SUBSTR(recipient_email, 1, INSTR(recipient_email, ',') - 1))
+                         ELSE TRIM(recipient_email)
+                    END, '@') + 1
+               ) as domain,
+               COUNT(*) as cnt
+               FROM email_outreach
+               WHERE error_type = 'bounced' OR (status = 'failed' AND error_type = 'invalid_address')
+               GROUP BY domain
+               HAVING cnt >= ?""",
+            (BOUNCE_DOMAIN_THRESHOLD,)
+        ).fetchall()
+        bounced_domains = {r["domain"].lower() for r in domain_counts if r["domain"] and r["domain"].lower() not in MAJOR_PROVIDERS}
+
+        with _bounce_cache_lock:
+            _bounced_domains_cache["emails"] = bounced_emails
+            _bounced_domains_cache["domains"] = bounced_domains
+            _bounced_domains_cache["loaded_at"] = time.time()
+
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def _is_bounce_blocked(email: str, conn=None) -> tuple:
+    """Check if email or its domain has bounced before.
+    Returns (blocked: bool, reason: str).
+    """
+    _refresh_bounce_cache(conn)
+    email_lower = email.lower().strip()
+
+    with _bounce_cache_lock:
+        # Exact email match
+        if email_lower in _bounced_domains_cache["emails"]:
+            return True, f"Previously bounced: {email_lower}"
+
+        # Domain match (2+ bounces from same domain)
+        if "@" in email_lower:
+            domain = email_lower.rsplit("@", 1)[1]
+            if domain in _bounced_domains_cache["domains"]:
+                return True, f"Domain '{domain}' has {BOUNCE_DOMAIN_THRESHOLD}+ previous bounces — auto-blocked"
+
+    return False, ""
+
+
+def get_bounce_blocked_domains(conn=None) -> list:
+    """Return list of domains auto-blocked due to bounce history. Used by stats endpoint."""
+    _refresh_bounce_cache(conn)
+    with _bounce_cache_lock:
+        return sorted(_bounced_domains_cache["domains"])
+
+
+# ───────────────────────────────────────────────
+# Suspicious email pattern detection
+# ───────────────────────────────────────────────
+
+def _looks_suspicious(email: str, company: str = "") -> tuple:
+    """Detect email patterns that almost always bounce.
+    Returns (suspicious: bool, reason: str).
+    """
+    if "@" not in email:
+        return True, "No @ sign"
+
+    local, domain = email.rsplit("@", 1)
+
+    # Gibberish local part: too short or random consonant clusters
+    if len(local) <= 2 and not local.isalpha():
+        return True, f"Suspiciously short local part: '{local}'"
+
+    # Company name used as email local part (e.g., flatiron.health@flatiron.com)
+    if company:
+        company_clean = re.sub(r'[^a-z0-9]', '', company.lower())
+        local_clean = re.sub(r'[^a-z0-9]', '', local.lower())
+        if company_clean and len(company_clean) > 3 and local_clean == company_clean:
+            return True, f"Local part is just the company name: {email}"
+
+    # Domain part of company name stuffed into local part
+    domain_name = domain.split(".")[0].lower()
+    if domain_name and len(domain_name) > 3:
+        local_lower = local.lower().replace(".", "")
+        if local_lower == domain_name or local_lower == f"{domain_name}health" or local_lower == f"{domain_name}ai":
+            return True, f"Local part mirrors domain name: {email}"
+
+    # Fake/placeholder patterns
+    if re.match(r'^[a-z]xxx', local.lower()) or re.match(r'^xxx', local.lower()):
+        return True, f"Placeholder email pattern: {email}"
+
+    # Suspiciously generic startup domains
+    FAKE_DOMAINS = {"stealthstartup.io", "example.com", "test.com", "startup.com"}
+    if domain.lower() in FAKE_DOMAINS:
+        return True, f"Fake/placeholder domain: {domain}"
+
+    return False, ""
 
 
 # ───────────────────────────────────────────────
@@ -84,6 +268,11 @@ def send_email(to_email: str, subject: str, body: str, attach_resume: bool = Fal
 def is_email_blocked(email: str, company: str = "") -> bool:
     """Public wrapper: check if email/company is on the blocklist."""
     return _is_blocked_email(email, company)
+
+
+def verify_email(email: str, company: str = "", skip_smtp: bool = False) -> dict:
+    """Public wrapper: full pre-send verification."""
+    return verify_before_send(email, company, skip_smtp=skip_smtp)
 
 
 # ───────────────────────────────────────────────
@@ -383,6 +572,206 @@ def validate_email_before_send(email: str) -> dict:
     return {"valid": True, "reason": "ok"}
 
 
+# ───────────────────────────────────────────────
+# Robust pre-send email verification
+# ───────────────────────────────────────────────
+
+# Generic prefixes that almost always bounce (not real mailboxes)
+GENERIC_PREFIXES = (
+    'info@', 'careers@', 'hr@', 'support@', 'contact@', 'hello@',
+    'jobs@', 'hiring@', 'team@', 'recruitment@', 'apply@',
+    'noreply@', 'no-reply@', 'admin@', 'office@', 'general@',
+)
+
+
+def sanitize_email(email: str) -> str:
+    """Clean and fix common email malformations.
+
+    Fixes: leading dots, concatenated domains, whitespace, comma-separated,
+    trailing punctuation, double @, control chars.
+    Returns cleaned email or empty string if unfixable.
+    """
+    if not email:
+        return ""
+
+    email = email.strip()
+
+    # Handle comma-separated — take the first one
+    if "," in email:
+        email = email.split(",")[0].strip()
+
+    # Remove control chars and whitespace
+    email = re.sub(r'[\r\n\t]', '', email)
+    email = email.strip().lower()
+
+    if "@" not in email:
+        return ""
+
+    # Fix double @@ (typo)
+    email = email.replace("@@", "@")
+
+    local, domain = email.rsplit("@", 1)
+
+    # Fix leading dots in local part (e.g., .ban.india@cgi.com)
+    local = local.lstrip(".")
+    # Fix trailing dots in local part
+    local = local.rstrip(".")
+
+    # Fix concatenated domains (e.g., gmail.comcoimbatore -> gmail.com)
+    # Detect: valid TLD followed by 3+ extra non-dot chars (avoids false positives like .com -> .co)
+    domain_fix = re.match(r'^([a-z0-9.-]+\.(com|org|net|io|ai|in|co|tech|health|edu|gov|us|uk|ca|au))[a-z]{3,}$', domain)
+    if domain_fix:
+        domain = domain_fix.group(1)
+
+    # Strip trailing dots/punctuation from domain
+    domain = domain.rstrip(".,;:!?")
+
+    # Basic sanity
+    if not local or not domain or "." not in domain:
+        return ""
+    if len(local) > 64 or len(domain) > 253:
+        return ""
+
+    return f"{local}@{domain}"
+
+
+def _smtp_rcpt_check(email: str, timeout: int = 8) -> str:
+    """SMTP RCPT TO verification — asks the mail server if address exists.
+
+    Returns: "accepted", "rejected", or "unknown"
+    Does NOT send any email.
+    """
+    domain = email.split("@")[1] if "@" in email else ""
+    if not domain:
+        return "rejected"
+
+    try:
+        mx_answers = dns.resolver.resolve(domain, "MX", lifetime=5)
+        mx_host = str(list(mx_answers)[0].exchange).rstrip(".")
+    except Exception:
+        return "rejected"  # No MX = no mail server
+
+    try:
+        smtp = smtplib.SMTP(timeout=timeout)
+        smtp.connect(mx_host, 25)
+        smtp.helo("verify.local")
+        smtp.mail("verify@verify.local")
+        code, _ = smtp.rcpt(email)
+        smtp.quit()
+        if code == 250:
+            return "accepted"
+        if code >= 550:
+            return "rejected"
+        return "unknown"
+    except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError,
+            socket.timeout, socket.gaierror, ConnectionRefusedError, OSError):
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+
+def verify_before_send(email: str, company: str = "", skip_smtp: bool = False) -> dict:
+    """Full pre-send verification gate. Run this before every send.
+
+    Pipeline: sanitize → blocklist → bounce history → suspicious pattern →
+              generic filter → format → MX → SMTP RCPT TO
+
+    Args:
+        email: raw email address (may be malformed or comma-separated)
+        company: company name for blocklist check
+        skip_smtp: if True, skip SMTP RCPT TO (for speed in bulk-generate)
+
+    Returns: {valid, email, reason, smtp_status}
+        - valid: True/False
+        - email: sanitized email (use this for sending)
+        - reason: human-readable explanation
+        - smtp_status: "accepted"/"rejected"/"unknown"/"skipped"
+    """
+    result = {"valid": False, "email": "", "reason": "", "smtp_status": "skipped"}
+
+    # Step 1: Sanitize
+    clean = sanitize_email(email)
+    if not clean:
+        result["reason"] = f"Unfixable malformed email: {email}"
+        return result
+    result["email"] = clean
+
+    # Step 2: Blocklist
+    if _is_blocked_email(clean, company):
+        result["reason"] = f"Blocked domain: {clean}"
+        return result
+
+    # Step 3: Bounce history check — never send to emails/domains that already bounced
+    bounce_blocked, bounce_reason = _is_bounce_blocked(clean)
+    if bounce_blocked:
+        result["reason"] = bounce_reason
+        return result
+
+    # Step 4: Suspicious pattern detection — catch obviously fake emails
+    suspicious, suspicious_reason = _looks_suspicious(clean, company)
+    if suspicious:
+        result["reason"] = f"Suspicious email pattern: {suspicious_reason}"
+        return result
+
+    # Step 5: Generic address filter
+    if clean.startswith(GENERIC_PREFIXES):
+        result["reason"] = f"Generic address (high bounce risk): {clean}"
+        return result
+
+    # Step 6: Format check
+    if not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', clean):
+        result["reason"] = f"Invalid email format: {clean}"
+        return result
+
+    # Step 7: MX check
+    domain = clean.split("@")[1]
+    try:
+        dns.resolver.resolve(domain, "MX", lifetime=5)
+    except Exception:
+        result["reason"] = f"Domain '{domain}' has no mail server (no MX records)"
+        return result
+
+    # Step 8: SMTP RCPT TO verification
+    if skip_smtp:
+        result["valid"] = True
+        result["reason"] = "Passed (SMTP skipped)"
+        result["smtp_status"] = "skipped"
+        return result
+
+    smtp_status = _smtp_rcpt_check(clean)
+    result["smtp_status"] = smtp_status
+
+    if smtp_status == "rejected":
+        result["reason"] = f"Mail server rejected address: {clean}"
+        return result
+
+    # accepted or unknown = pass (fail-open for unknown, some servers don't support RCPT TO check)
+    result["valid"] = True
+    result["reason"] = f"Verified ({smtp_status})"
+    return result
+
+
+def verify_best_email(email_field: str, company: str = "", skip_smtp: bool = False) -> dict:
+    """Try each email in a comma-separated list, return the first valid one.
+
+    Falls back through alternatives when the first email fails validation
+    (e.g., 'info@co.com, jane@co.com' → skips generic info@, uses jane@).
+    """
+    if "," not in email_field:
+        return verify_before_send(email_field, company, skip_smtp)
+
+    candidates = [e.strip() for e in email_field.split(",") if e.strip()]
+    last_result = None
+    for candidate in candidates:
+        result = verify_before_send(candidate, company, skip_smtp)
+        if result["valid"]:
+            return result
+        last_result = result
+
+    # All failed — return the last failure reason
+    return last_result or {"valid": False, "email": "", "reason": "No valid email in list", "smtp_status": "skipped"}
+
+
 def _send_email_smtp(to_email: str, subject: str, body: str, attach_resume: bool = False, resume_path: str = "") -> dict:
     """Send email via SMTP (Gmail). Optionally attach resume PDF."""
     # Handle comma-separated addresses — send to first valid one
@@ -450,11 +839,12 @@ def send_email_with_resume(to_email: str, subject: str, body: str, resume_path: 
     """Public wrapper: send an email with resume attached.
     Returns {"success": True/False, "error": ...}
     """
-    check = validate_email_before_send(to_email)
+    check = verify_before_send(to_email)
     if not check["valid"]:
         return {"success": False, "error": check["reason"]}
+    clean_email = check["email"]
     try:
-        result = _send_email_smtp(to_email, subject, body, attach_resume=True, resume_path=resume_path)
+        result = _send_email_smtp(clean_email, subject, body, attach_resume=True, resume_path=resume_path)
         if result["status"] == "sent":
             return {"success": True}
         return {"success": False, "error": result.get("error_message", "Send failed")[:300]}
@@ -466,257 +856,368 @@ def send_email_with_resume(to_email: str, subject: str, body: str, resume_path: 
 # Background email workers (non-blocking)
 # ───────────────────────────────────────────────
 
-_email_lock = threading.Lock()
+_email_lock = threading.Lock()  # kept for backward compat
 
-email_worker_state = {
+# Separate worker states so generate + send can run in parallel
+_generate_lock = threading.Lock()
+_send_lock = threading.Lock()
+
+generate_worker_state = {
     "running": False,
-    "task": None,       # "generating" | "sending"
+    "task": "generating",
     "current": 0,
     "total": 0,
     "current_label": "",
-    "results": [],      # list of {post_id, status, message, ...}
+    "succeeded": 0,
+    "failed": 0,
+    "skipped": 0,
+    "results": [],
     "error": None,
 }
 
+send_worker_state = {
+    "running": False,
+    "task": "sending",
+    "current": 0,
+    "total": 0,
+    "current_label": "",
+    "succeeded": 0,
+    "failed": 0,
+    "skipped": 0,
+    "results": [],
+    "error": None,
+}
+
+# Legacy alias — routes that import email_worker_state still work (points to generate by default)
+email_worker_state = generate_worker_state
+
 
 def _bulk_generate_worker(post_ids: list[int]):
-    """Background thread: generate emails for given post IDs."""
-    conn = init_db()
-    run_id = conn.execute(
-        "INSERT INTO worker_runs (worker_type, total) VALUES (?, ?)",
-        ("bulk_generate", len(post_ids))
-    ).lastrowid
-    conn.commit()
+    """Background thread: generate emails for given post/lead IDs.
+
+    Positive IDs = posts table, negative IDs = startup_leads table.
+    """
+    conn = None
+    run_id = None
     succeeded_count = 0
     failed_count = 0
-    with _email_lock:
-        email_worker_state["running"] = True
-        email_worker_state["task"] = "generating"
-        email_worker_state["total"] = len(post_ids)
-        email_worker_state["current"] = 0
-        email_worker_state["results"] = []
-        email_worker_state["error"] = None
+    try:
+        conn = init_db()
+        run_id = conn.execute(
+            "INSERT INTO worker_runs (worker_type, total) VALUES (?, ?)",
+            ("bulk_generate", len(post_ids))
+        ).lastrowid
+        conn.commit()
 
-    for i, post_id in enumerate(post_ids):
-        with _email_lock:
-            if not email_worker_state["running"]:
-                break
-            email_worker_state["current"] = i + 1
+        with _generate_lock:
+            generate_worker_state["running"] = True
+            generate_worker_state["total"] = len(post_ids)
+            generate_worker_state["current"] = 0
+            generate_worker_state["succeeded"] = 0
+            generate_worker_state["failed"] = 0
+            generate_worker_state["skipped"] = 0
+            generate_worker_state["results"] = []
+            generate_worker_state["error"] = None
 
-        row = conn.execute(
-            """SELECT p.id, p.author_name, p.author_headline, p.content, p.email,
-                      p.links, p.domain_relevance, p.is_hiring, p.post_url,
-                      j.role, j.company, j.location, j.experience
-               FROM posts p LEFT JOIN jobs j ON j.post_id = p.id
-               WHERE p.id = ?""",
-            (post_id,),
-        ).fetchone()
-        if not row:
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": post_id, "status": "error", "message": "Post not found"})
-            continue
+        for i, post_id in enumerate(post_ids):
+            with _generate_lock:
+                if not generate_worker_state["running"]:
+                    break
+                generate_worker_state["current"] = i + 1
 
-        row = dict(row)
-
-        # Skip blocked emails (current employer, etc)
-        if _is_blocked_email(row.get("email", ""), row.get("company", "")):
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": post_id, "status": "skipped", "message": "Blocked (current employer)"})
-            continue
-
-        with _email_lock:
-            email_worker_state["current_label"] = f"{row.get('author_name', '?')} | {row.get('role', '?')} @ {row.get('company', '?')}"
-
-        # Pick A/B variant
-        variant = pick_variant()
-        variant_strategies = {"A": "proof-first: Lead with your strongest quantified achievement, then connect it to their specific need.", "B": "challenge-first: Lead with their specific challenge or pain point, then show how you've solved exactly that."}
-        row["variant_instruction"] = variant_strategies.get(variant, "")
-
-        # Check referral connections
-        company = row.get("company", "")
-        referral_info = None
-        outreach_type = "cold"
-        if company:
-            try:
-                referral_info = find_connections(conn, company)
-                if referral_info.get("has_connections"):
-                    row["referral_context"] = referral_info
-                    rec = referral_info.get("recommendation", "cold_apply")
-                    if rec in ("warm_followup", "warm_intro"):
-                        outreach_type = "warm"
-                    elif rec == "referral_outreach":
-                        outreach_type = "referral"
-            except Exception:
-                pass
-
-        to_email = row.get("email", "")
-        # Validate email quality
-        if to_email and "," in to_email:
-            to_email = to_email.split(",")[0].strip()  # Use first address
-
-        validation = validate_email_before_send(to_email)
-        if not validation["valid"]:
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": post_id, "status": "skipped", "message": validation["reason"]})
-            failed_count += 1
-            continue
-
-        # Dedup: skip if we already emailed this recipient
-        existing = conn.execute(
-            "SELECT id FROM email_outreach WHERE recipient_email = ? AND status IN ('sent', 'replied', 'draft')",
-            (to_email,)
-        ).fetchone()
-        if existing:
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": post_id, "status": "skipped", "message": f"Already emailed {to_email}"})
-            failed_count += 1
-            continue
-
-        # Skip generic addresses (95% bounce rate)
-        generic_prefixes = ('info@', 'careers@', 'hr@', 'support@', 'contact@', 'hello@', 'jobs@', 'hiring@', 'team@', 'recruitment@', 'apply@', 'noreply@', 'no-reply@')
-        if to_email.lower().startswith(generic_prefixes):
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": post_id, "status": "skipped", "message": f"Generic address: {to_email}"})
-            failed_count += 1
-            continue
-
-        try:
-            email = _generate_email_with_gemini(row)
-            # Save draft to DB
-            existing = conn.execute(
-                "SELECT id FROM email_outreach WHERE post_id = ? AND status = 'draft'", (post_id,),
-            ).fetchone()
-            cursor = conn.cursor()
-            if existing:
-                cursor.execute(
-                    "UPDATE email_outreach SET recipient_email=?, subject=?, body=?, created_at=datetime('now') WHERE id=?",
-                    (to_email, email["subject"], email["body"], existing["id"]),
-                )
-                outreach_id = existing["id"]
+            # Negative IDs = startup leads, positive = posts
+            if post_id < 0:
+                lead_id = -post_id
+                lead = conn.execute(
+                    """SELECT id, company_name, email, description, industry, location,
+                              website, linkedin_url, tags
+                       FROM startup_leads WHERE id = ?""",
+                    (lead_id,),
+                ).fetchone()
+                if not lead:
+                    with _generate_lock:
+                        generate_worker_state["failed"] += 1
+                        generate_worker_state["results"] = generate_worker_state["results"][-19:] + [{"post_id": post_id, "status": "error", "message": "Lead not found"}]
+                    failed_count += 1
+                    continue
+                lead = dict(lead)
+                row = {
+                    "id": lead["id"],
+                    "author_name": lead["company_name"],
+                    "author_headline": lead.get("industry") or "Healthcare Startup",
+                    "author_profile": lead.get("linkedin_url") or "",
+                    "email": lead["email"],
+                    "content": lead.get("description") or "",
+                    "links": lead.get("website") or "",
+                    "domain_relevance": "High",
+                    "is_hiring": 0,
+                    "role": lead.get("tags") or "",
+                    "company": lead["company_name"],
+                    "location": lead.get("location") or "",
+                    "post_url": lead.get("website") or "",
+                    "source_type": "startup_lead",
+                }
             else:
-                cursor.execute(
-                    "INSERT INTO email_outreach (post_id, recipient_email, subject, body, status) VALUES (?, ?, ?, ?, 'draft')",
-                    (post_id, to_email, email["subject"], email["body"]),
-                )
-                outreach_id = cursor.lastrowid
-            conn.commit()
+                row = conn.execute(
+                    """SELECT p.id, p.author_name, p.author_headline, p.content, p.email,
+                              p.links, p.domain_relevance, p.is_hiring, p.post_url,
+                              j.role, j.company, j.location, j.experience
+                       FROM posts p LEFT JOIN jobs j ON j.post_id = p.id
+                       WHERE p.id = ?""",
+                    (post_id,),
+                ).fetchone()
+                if not row:
+                    with _generate_lock:
+                        generate_worker_state["failed"] += 1
+                        generate_worker_state["results"] = generate_worker_state["results"][-19:] + [{"post_id": post_id, "status": "error", "message": "Post not found"}]
+                    failed_count += 1
+                    continue
+                row = dict(row)
+
+            # Full pre-generate verification — tries all comma-separated alternatives
+            check = verify_best_email(row.get("email", ""), row.get("company", ""), skip_smtp=True)
+            if not check["valid"]:
+                with _generate_lock:
+                    generate_worker_state["skipped"] += 1
+                    generate_worker_state["results"] = generate_worker_state["results"][-19:] + [{"post_id": post_id, "status": "skipped", "message": check["reason"]}]
+                failed_count += 1
+                continue
+
+            to_email = check["email"]  # Use sanitized email
+
+            with _generate_lock:
+                generate_worker_state["current_label"] = f"{row.get('author_name', '?')} | {row.get('role', '?')} @ {row.get('company', '?')}"
+
+            # Pick A/B variant
+            variant = pick_variant()
+            variant_strategies = {"A": "proof-first: Lead with your strongest quantified achievement, then connect it to their specific need.", "B": "challenge-first: Lead with their specific challenge or pain point, then show how you've solved exactly that."}
+            row["variant_instruction"] = variant_strategies.get(variant, "")
+
+            # Check referral connections
+            company = row.get("company", "")
+            referral_info = None
+            outreach_type = "cold"
+            if company:
+                try:
+                    referral_info = find_connections(conn, company)
+                    if referral_info.get("has_connections"):
+                        row["referral_context"] = referral_info
+                        rec = referral_info.get("recommendation", "cold_apply")
+                        if rec in ("warm_followup", "warm_intro"):
+                            outreach_type = "warm"
+                        elif rec == "referral_outreach":
+                            outreach_type = "referral"
+                except Exception as e:
+                    print(f"[BulkGenerate] Referral lookup failed for {company}: {e}")
+
+            # Dedup: skip if we already emailed this recipient
+            existing = conn.execute(
+                "SELECT id FROM email_outreach WHERE recipient_email = ? AND status IN ('sent', 'replied', 'draft')",
+                (to_email,)
+            ).fetchone()
+            if existing:
+                with _generate_lock:
+                    generate_worker_state["skipped"] += 1
+                    generate_worker_state["results"] = generate_worker_state["results"][-19:] + [{"post_id": post_id, "status": "skipped", "message": f"Already emailed {to_email}"}]
+                failed_count += 1
+                continue
+
             try:
-                record_variant(conn, outreach_id, variant, variant_strategies.get(variant, ""))
-                cursor.execute("UPDATE email_outreach SET outreach_type = ? WHERE id = ?", (outreach_type, outreach_id))
+                email = _generate_email_with_gemini(row)
+                # Save draft to DB — use real post_id for posts, NULL for startup leads
+                db_post_id = post_id if post_id > 0 else None
+                existing = conn.execute(
+                    "SELECT id FROM email_outreach WHERE recipient_email = ? AND status = 'draft'", (to_email,),
+                ).fetchone()
+                cursor = conn.cursor()
+                if existing:
+                    cursor.execute(
+                        "UPDATE email_outreach SET post_id=?, recipient_email=?, subject=?, body=?, created_at=datetime('now') WHERE id=?",
+                        (db_post_id, to_email, email["subject"], email["body"], existing["id"]),
+                    )
+                    outreach_id = existing["id"]
+                else:
+                    cursor.execute(
+                        "INSERT INTO email_outreach (post_id, recipient_email, subject, body, status) VALUES (?, ?, ?, ?, 'draft')",
+                        (db_post_id, to_email, email["subject"], email["body"]),
+                    )
+                    outreach_id = cursor.lastrowid
+                conn.commit()
+                try:
+                    record_variant(conn, outreach_id, variant, variant_strategies.get(variant, ""))
+                    cursor.execute("UPDATE email_outreach SET outreach_type = ? WHERE id = ?", (outreach_type, outreach_id))
+                    conn.commit()
+                except Exception as e:
+                    print(f"[BulkGenerate] Variant recording failed for outreach {outreach_id}: {e}")
+                with _generate_lock:
+                    generate_worker_state["succeeded"] += 1
+                    generate_worker_state["results"] = generate_worker_state["results"][-19:] + [{
+                        "post_id": post_id, "status": "ok",
+                        "to_email": to_email, "author_name": row.get("author_name", ""),
+                        **email,
+                    }]
+                succeeded_count += 1
+            except Exception as e:
+                with _generate_lock:
+                    generate_worker_state["failed"] += 1
+                    generate_worker_state["results"] = generate_worker_state["results"][-19:] + [{"post_id": post_id, "status": "error", "message": str(e)[:200]}]
+                failed_count += 1
+
+            # Rate limit delay between API calls
+            time.sleep(random.uniform(1, 2))
+
+        if conn and run_id:
+            conn.execute(
+                "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=?, results=? WHERE id=?",
+                ("completed", succeeded_count, failed_count, json.dumps(generate_worker_state.get("results", [])[-20:]), run_id)
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"[BulkGenerate] Worker crashed: {e}")
+        with _generate_lock:
+            generate_worker_state["error"] = str(e)[:500]
+        if conn and run_id:
+            try:
+                conn.execute(
+                    "UPDATE worker_runs SET finished_at=datetime('now'), status=?, results=? WHERE id=?",
+                    ("failed", json.dumps({"error": str(e)[:300]}), run_id)
+                )
                 conn.commit()
             except Exception:
                 pass
-            with _email_lock:
-                email_worker_state["results"].append({
-                    "post_id": post_id, "status": "ok",
-                    "to_email": to_email, "author_name": row.get("author_name", ""),
-                    **email,
-                })
-            succeeded_count += 1
-        except Exception as e:
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": post_id, "status": "error", "message": str(e)[:200]})
-            failed_count += 1
-
-        # Rate limit delay between API calls
-        time.sleep(random.uniform(1, 2))
-
-    conn.execute(
-        "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=?, results=? WHERE id=?",
-        ("completed", succeeded_count, failed_count, json.dumps(email_worker_state.get("results", [])[-20:]), run_id)
-    )
-    conn.commit()
-
-    with _email_lock:
-        email_worker_state["running"] = False
-        email_worker_state["task"] = None
-        email_worker_state["current_label"] = ""
+    finally:
+        with _generate_lock:
+            generate_worker_state["running"] = False
+            generate_worker_state["current_label"] = ""
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _bulk_send_worker(attach_resume: bool = True):
     """Background thread: send all draft emails."""
-    conn = init_db()
-    drafts = conn.execute(
-        """SELECT eo.id, eo.post_id, eo.recipient_email, eo.subject, eo.body
-           FROM email_outreach eo WHERE eo.status = 'draft' AND eo.subject IS NOT NULL AND eo.body IS NOT NULL"""
-    ).fetchall()
-    drafts = [dict(r) for r in drafts]
-
-    run_id = conn.execute(
-        "INSERT INTO worker_runs (worker_type, total) VALUES (?, ?)",
-        ("bulk_send", len(drafts))
-    ).lastrowid
-    conn.commit()
+    conn = None
+    run_id = None
     succeeded_count = 0
     failed_count = 0
+    try:
+        conn = init_db()
+        drafts = conn.execute(
+            """SELECT eo.id, eo.post_id, eo.recipient_email, eo.subject, eo.body
+               FROM email_outreach eo WHERE eo.status = 'draft' AND eo.subject IS NOT NULL AND eo.body IS NOT NULL"""
+        ).fetchall()
+        drafts = [dict(r) for r in drafts]
 
-    with _email_lock:
-        email_worker_state["running"] = True
-        email_worker_state["task"] = "sending"
-        email_worker_state["total"] = len(drafts)
-        email_worker_state["current"] = 0
-        email_worker_state["results"] = []
-        email_worker_state["error"] = None
+        run_id = conn.execute(
+            "INSERT INTO worker_runs (worker_type, total) VALUES (?, ?)",
+            ("bulk_send", len(drafts))
+        ).lastrowid
+        conn.commit()
 
-    for i, draft in enumerate(drafts):
-        with _email_lock:
-            if not email_worker_state["running"]:
-                break
-            email_worker_state["current"] = i + 1
+        with _send_lock:
+            send_worker_state["running"] = True
+            send_worker_state["total"] = len(drafts)
+            send_worker_state["current"] = 0
+            send_worker_state["succeeded"] = 0
+            send_worker_state["failed"] = 0
+            send_worker_state["skipped"] = 0
+            send_worker_state["results"] = []
+            send_worker_state["error"] = None
 
-        # Skip blocked emails (current employer, etc)
-        if _is_blocked_email(draft["recipient_email"]):
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "skipped", "message": "Blocked (current employer)"})
-            continue
+        for i, draft in enumerate(drafts):
+            with _send_lock:
+                if not send_worker_state["running"]:
+                    break
+                send_worker_state["current"] = i + 1
 
-        # Dedup: skip if recipient already has a 'sent' record (different outreach entry)
-        already_sent = conn.execute(
-            "SELECT id FROM email_outreach WHERE recipient_email = ? AND status = 'sent' AND id != ?",
-            (draft["recipient_email"], draft["id"])
-        ).fetchone()
-        if already_sent:
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "skipped", "message": f"Already sent to {draft['recipient_email']}"})
-            failed_count += 1
-            continue
+            # Full pre-send verification — tries all comma-separated alternatives
+            check = verify_best_email(draft["recipient_email"])
+            if not check["valid"]:
+                with _send_lock:
+                    send_worker_state["skipped"] += 1
+                    send_worker_state["results"] = send_worker_state["results"][-19:] + [{"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "skipped", "message": check["reason"]}]
+                # Mark as failed in DB so we don't retry
+                conn.execute(
+                    "UPDATE email_outreach SET status='failed', error_message=?, error_type='pre_send_rejected' WHERE id=?",
+                    (check["reason"][:500], draft["id"])
+                )
+                conn.commit()
+                failed_count += 1
+                continue
 
-        with _email_lock:
-            email_worker_state["current_label"] = f"{draft['recipient_email']}"
+            # Use sanitized email
+            clean_email = check["email"]
 
-        result = _send_email_smtp(draft["recipient_email"], draft["subject"], draft["body"], attach_resume=attach_resume)
-        if result["status"] == "sent":
+            # Dedup: skip if recipient already has a 'sent' record (different outreach entry)
+            already_sent = conn.execute(
+                "SELECT id FROM email_outreach WHERE recipient_email = ? AND status = 'sent' AND id != ?",
+                (clean_email, draft["id"])
+            ).fetchone()
+            if already_sent:
+                with _send_lock:
+                    send_worker_state["skipped"] += 1
+                    send_worker_state["results"] = send_worker_state["results"][-19:] + [{"post_id": draft["post_id"], "to": clean_email, "status": "skipped", "message": f"Already sent to {clean_email}"}]
+                failed_count += 1
+                continue
+
+            with _send_lock:
+                send_worker_state["current_label"] = f"{clean_email} ({check['smtp_status']})"
+
+            result = _send_email_smtp(clean_email, draft["subject"], draft["body"], attach_resume=attach_resume)
+            if result["status"] == "sent":
+                conn.execute(
+                    "UPDATE email_outreach SET status='sent', sent_at=datetime('now') WHERE id=?",
+                    (draft["id"],),
+                )
+                conn.commit()
+                with _send_lock:
+                    send_worker_state["succeeded"] += 1
+                    send_worker_state["results"] = send_worker_state["results"][-19:] + [{"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "sent"}]
+                succeeded_count += 1
+            else:
+                conn.execute(
+                    "UPDATE email_outreach SET status='failed', error_message=?, error_type=? WHERE id=?",
+                    (result.get("error_message", "")[:500], result.get("error_type", "unknown"), draft["id"])
+                )
+                conn.commit()
+                with _send_lock:
+                    send_worker_state["failed"] += 1
+                    send_worker_state["results"] = send_worker_state["results"][-19:] + [{"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "failed", "error": result.get("error_message", "")[:200]}]
+                failed_count += 1
+
+            # Anti-spam delay
+            time.sleep(random.uniform(3, 8))
+
+        if conn and run_id:
             conn.execute(
-                "UPDATE email_outreach SET status='sent', sent_at=datetime('now') WHERE id=?",
-                (draft["id"],),
+                "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=?, results=? WHERE id=?",
+                ("completed", succeeded_count, failed_count, json.dumps(send_worker_state.get("results", [])[-20:]), run_id)
             )
             conn.commit()
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "sent"})
-            succeeded_count += 1
-        else:
-            conn.execute(
-                "UPDATE email_outreach SET status='failed', error_message=?, error_type=? WHERE id=?",
-                (result.get("error_message", "")[:500], result.get("error_type", "unknown"), draft["id"])
-            )
-            conn.commit()
-            with _email_lock:
-                email_worker_state["results"].append({"post_id": draft["post_id"], "to": draft["recipient_email"], "status": "failed", "error": result.get("error_message", "")[:200]})
-            failed_count += 1
-
-        # Anti-spam delay
-        time.sleep(random.uniform(3, 8))
-
-    conn.execute(
-        "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=?, results=? WHERE id=?",
-        ("completed", succeeded_count, failed_count, json.dumps(email_worker_state.get("results", [])[-20:]), run_id)
-    )
-    conn.commit()
-
-    with _email_lock:
-        email_worker_state["running"] = False
-        email_worker_state["task"] = None
-        email_worker_state["current_label"] = ""
+    except Exception as e:
+        print(f"[BulkSend] Worker crashed: {e}")
+        with _send_lock:
+            send_worker_state["error"] = str(e)[:500]
+        if conn and run_id:
+            try:
+                conn.execute(
+                    "UPDATE worker_runs SET finished_at=datetime('now'), status=?, results=? WHERE id=?",
+                    ("failed", json.dumps({"error": str(e)[:300]}), run_id)
+                )
+                conn.commit()
+            except Exception:
+                pass
+    finally:
+        with _send_lock:
+            send_worker_state["running"] = False
+            send_worker_state["current_label"] = ""
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # ── Auto Follow-up Worker ──────────────────────────────────────────────────
@@ -998,6 +1499,7 @@ def _imap_check_replies():
     ).fetchall()
 
     if not sent:
+        conn.close()
         return 0
 
     # Build lookup: email -> list of outreach records
@@ -1008,6 +1510,7 @@ def _imap_check_replies():
             email_lookup.setdefault(addr, []).append(row)
 
     if not email_lookup:
+        conn.close()
         return 0
 
     imap_user = IMAP_CONFIG["user"]
@@ -1175,6 +1678,9 @@ def _imap_check_replies():
                                 )
                                 conn.commit()
                                 replies_found += 1  # count bounces in the detection total
+                                # Invalidate bounce cache so new bounces block future sends immediately
+                                with _bounce_cache_lock:
+                                    _bounced_domains_cache["loaded_at"] = 0
                     except Exception:
                         continue
             except Exception:
@@ -1197,6 +1703,7 @@ def _imap_check_replies():
         ("completed", replies_found, total_checked, json.dumps({"replies_found": replies_found, "total_checked": total_checked}), run_id)
     )
     conn.commit()
+    conn.close()
 
     return replies_found
 
@@ -1215,7 +1722,10 @@ def _imap_poll_worker(interval_minutes=5):
                 found = _imap_check_replies()
                 with _imap_lock:
                     imap_worker_state["error"] = None
+                if found:
+                    print(f"[IMAP] Check complete — {found} new replies/bounces detected")
             except Exception as e:
+                print(f"[IMAP] Error during check: {e}")
                 with _imap_lock:
                     imap_worker_state["error"] = str(e)
 
@@ -1227,6 +1737,7 @@ def _imap_poll_worker(interval_minutes=5):
     finally:
         with _imap_lock:
             imap_worker_state["running"] = False
+        print("[IMAP] Polling stopped")
 
 
 def start_imap_polling(interval_minutes=5):

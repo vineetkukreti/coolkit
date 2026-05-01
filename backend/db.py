@@ -306,6 +306,16 @@ def run_migrations(conn):
         "ALTER TABLE email_outreach ADD COLUMN error_message TEXT",
         "ALTER TABLE email_outreach ADD COLUMN error_type TEXT",
         "ALTER TABLE email_outreach ADD COLUMN reply_type TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN source TEXT DEFAULT 'scraped'",
+        "ALTER TABLE email_outreach ADD COLUMN phone TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN hashtags TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN work_mode TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN company TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN role TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN location TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN experience TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN posted_at TEXT",
+        "ALTER TABLE email_outreach ADD COLUMN skills_json TEXT",
     ]
     for sql in migrations:
         try:

@@ -27,9 +27,6 @@ class ScraperStartRequest(BaseModel):
 
 @router.post("/api/scraper/start")
 def api_start_scraper(req: ScraperStartRequest):
-    with _scraper_lock:
-        if scraper_state["running"]:
-            raise HTTPException(status_code=400, detail="Scraper already running")
     from config_sources import GENERIC_HTML_SOURCES, GENERIC_API_SOURCES, CUSTOM_SOURCES
     api_only_sources = {"remoteok", "himalayas", "hn", "remotive", "wwr_rss", "workingnomads", "greenhouse", "lever", "ashby", "jobspy"}
     api_only_sources.update(GENERIC_HTML_SOURCES.keys())
@@ -39,8 +36,14 @@ def api_start_scraper(req: ScraperStartRequest):
     needs_browser = any(s not in api_only_sources for s in sources)
     if needs_browser and not browser_state.get("running"):
         raise HTTPException(status_code=400, detail="Browser not running. Start it from Settings first (API scrapers like RemoteOK, Himalayas, HN don't need it).")
+    # Only reject sources that are already actively running (allow non-overlapping parallel starts)
     with _scraper_lock:
-        scraper_state["sources"] = {}
+        active = scraper_state.get("active_sources", set())
+        overlap = set(sources) & active
+        if overlap:
+            names = ", ".join(sorted(overlap))
+            raise HTTPException(status_code=400, detail=f"Already scraping: {names}. You can start other sources in parallel.")
+        sources = [s for s in sources if s not in active]  # filter out any overlap
         scraper_state["running"] = True
         scraper_state["status"] = "running"
     threading.Thread(
@@ -53,14 +56,29 @@ def api_start_scraper(req: ScraperStartRequest):
 
 
 @router.post("/api/scraper/stop")
-def api_stop_scraper():
+def api_stop_scraper(source: str = None):
+    """Stop scraping. Pass ?source=linkedin to stop one source, or omit to stop all."""
     with _scraper_lock:
-        scraper_state["running"] = False
-        scraper_state["status"] = "idle"
-        for s in scraper_state.get("sources", {}).values():
-            if s["status"] in ("waiting", "running"):
-                s["status"] = "stopped"
-    return {"status": "stopped"}
+        if source:
+            # Stop a specific source
+            scraper_state["active_sources"].discard(source)
+            src = scraper_state.get("sources", {}).get(source)
+            if src and src["status"] in ("waiting", "running"):
+                src["status"] = "stopped"
+            if not scraper_state["active_sources"]:
+                scraper_state["running"] = False
+                scraper_state["status"] = "idle"
+                scraper_state["started_at"] = None
+        else:
+            # Stop all
+            scraper_state["running"] = False
+            scraper_state["status"] = "idle"
+            scraper_state["active_sources"].clear()
+            scraper_state["started_at"] = None
+            for s in scraper_state.get("sources", {}).values():
+                if s["status"] in ("waiting", "running"):
+                    s["status"] = "stopped"
+    return {"status": "stopped", "stopped": source or "all"}
 
 
 @router.get("/api/scraper/status")
@@ -79,6 +97,7 @@ def api_scraper_status():
             "status": scraper_state["status"],
             "started_at": scraper_state.get("started_at"),
             "sources": sources_data,
+            "active_sources": list(scraper_state.get("active_sources", set())),
         }
 
 

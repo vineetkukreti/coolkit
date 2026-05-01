@@ -115,10 +115,10 @@ function ConnectionsBtn({ company }) {
         <div className="absolute left-0 top-full mt-1 z-20 bg-bg-secondary border border-border rounded-lg shadow-xl p-3 w-56"
           onClick={e => e.stopPropagation()}>
           <p className="text-xs font-semibold text-fg-primary mb-2">Connections at {company}</p>
-          {result.connections?.length > 0 ? result.connections.slice(0, 5).map((c, i) => (
+          {result.contacts?.length > 0 ? result.contacts.slice(0, 5).map((c, i) => (
             <div key={i} className="py-1 text-[10px]">
               <span className="text-fg-primary font-medium">{c.name}</span>
-              {c.title && <span className="text-fg-muted ml-1">· {c.title}</span>}
+              {c.detail && <span className="text-fg-muted ml-1">· {c.detail}</span>}
             </div>
           )) : (
             <p className="text-[10px] text-fg-muted">{result.message || 'No connections found'}</p>

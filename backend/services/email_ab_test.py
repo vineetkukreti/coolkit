@@ -184,7 +184,7 @@ def get_ab_stats(conn: sqlite3.Connection) -> dict:
                 variant_strategy,
                 COUNT(*) as total_sent,
                 SUM(CASE WHEN status = 'replied' THEN 1 ELSE 0 END) as replies,
-                SUM(CASE WHEN status = 'bounced' THEN 1 ELSE 0 END) as bounces
+                SUM(CASE WHEN status = 'failed' AND error_type = 'bounced' THEN 1 ELSE 0 END) as bounces
             FROM email_outreach
             WHERE variant IS NOT NULL
             GROUP BY variant, variant_strategy

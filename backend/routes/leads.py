@@ -39,53 +39,78 @@ class EnrichRequest(BaseModel):
 # Enrichment state + worker
 # ───────────────────────────────────────────────
 
-enrichment_state = {
-    "running": False,
-    "current": 0,
-    "total": 0,
-    "current_company": "",
-    "target": "",            # "startup_leads" or "posts"
-    "results": [],           # last N progress events
-    "summary": None,         # final {enriched, skipped, failed, total_emails_found}
-}
+def _make_enrichment_state():
+    return {
+        "running": False,
+        "current": 0,
+        "total": 0,
+        "current_company": "",
+        "target": "",
+        "results": [],
+        "summary": None,
+    }
 
-_enrichment_lock = threading.Lock()
+# Separate per-target workers so startup_leads + posts can enrich in parallel
+_leads_enrich_lock = threading.Lock()
+_posts_enrich_lock = threading.Lock()
+leads_enrich_state = _make_enrichment_state()
+posts_enrich_state = _make_enrichment_state()
+
+# Legacy alias
+enrichment_state = leads_enrich_state
+_enrichment_lock = _leads_enrich_lock
+
+
+def _get_enrich_state_and_lock(target: str):
+    if target == "posts":
+        return posts_enrich_state, _posts_enrich_lock
+    return leads_enrich_state, _leads_enrich_lock
 
 
 def _enrichment_worker(max_leads: int, target: str):
     """Background thread: find emails for leads without them."""
-    enrichment_state["running"] = True
-    enrichment_state["current"] = 0
-    enrichment_state["total"] = 0
-    enrichment_state["current_company"] = ""
-    enrichment_state["target"] = target
-    enrichment_state["results"] = []
-    enrichment_state["summary"] = None
-
-    conn = init_db()
-
-    def on_progress(data):
-        enrichment_state["results"].append(data)
-        # Keep last 100
-        if len(enrichment_state["results"]) > 100:
-            enrichment_state["results"] = enrichment_state["results"][-100:]
-
-        if data.get("type") in ("searching", "found", "not_found", "error"):
-            enrichment_state["current"] = data.get("current", 0)
-            enrichment_state["total"] = data.get("total", 0)
-            enrichment_state["current_company"] = data.get("company", "")
-        elif data.get("type") == "start":
-            enrichment_state["total"] = data.get("total", 0)
-        elif data.get("type") == "done":
-            enrichment_state["summary"] = data
-
+    state, lock = _get_enrich_state_and_lock(target)
+    conn = None
     try:
+        with lock:
+            state["running"] = True
+            state["current"] = 0
+            state["total"] = 0
+            state["current_company"] = ""
+            state["target"] = target
+            state["results"] = []
+            state["summary"] = None
+
+        conn = init_db()
+
+        def on_progress(data):
+            with lock:
+                state["results"].append(data)
+                if len(state["results"]) > 100:
+                    state["results"] = state["results"][-100:]
+
+                if data.get("type") in ("searching", "found", "not_found", "error"):
+                    state["current"] = data.get("current", 0)
+                    state["total"] = data.get("total", 0)
+                    state["current_company"] = data.get("company", "")
+                elif data.get("type") == "start":
+                    state["total"] = data.get("total", 0)
+                elif data.get("type") == "done":
+                    state["summary"] = data
+
         enrich_leads(conn, max_leads=max_leads, target=target, on_progress=on_progress)
     except Exception as e:
-        enrichment_state["results"].append({"type": "error", "error": str(e)[:300]})
+        print(f"[Enrichment] Worker error ({target}): {e}")
+        with lock:
+            state["results"].append({"type": "error", "error": str(e)[:300]})
     finally:
-        enrichment_state["running"] = False
-        conn.close()
+        with lock:
+            state["running"] = False
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # ───────────────────────────────────────────────
@@ -255,12 +280,15 @@ def api_import_leads():
 
 @router.post("/api/leads/enrich/start")
 def api_start_enrichment(req: EnrichRequest):
-    """Start bulk email finding in background."""
-    if enrichment_state["running"]:
-        raise HTTPException(status_code=400, detail="Email finder already running. Wait or stop it first.")
+    """Start bulk email finding in background. Startup leads + posts can run in parallel."""
+    target = req.target if req.target in ("startup_leads", "posts") else "startup_leads"
+    state, lock = _get_enrich_state_and_lock(target)
+    with lock:
+        if state["running"]:
+            label = "Startup leads" if target == "startup_leads" else "Posts"
+            raise HTTPException(status_code=400, detail=f"{label} enrichment already running. Wait or stop it first.")
 
     db_conn = _get_db()
-    target = req.target if req.target in ("startup_leads", "posts") else "startup_leads"
 
     # Count how many need emails
     if target == "startup_leads":
@@ -290,30 +318,48 @@ def api_start_enrichment(req: EnrichRequest):
 
 @router.get("/api/leads/enrich/status")
 def api_enrichment_status():
-    """Poll this for enrichment progress."""
-    found_count = sum(1 for r in enrichment_state["results"] if r.get("type") == "found")
-    not_found = sum(1 for r in enrichment_state["results"] if r.get("type") == "not_found")
-    errors = sum(1 for r in enrichment_state["results"] if r.get("type") == "error")
+    """Poll this for enrichment progress. Returns both target workers."""
+    def _snap(state):
+        found_count = sum(1 for r in state["results"] if r.get("type") == "found")
+        not_found = sum(1 for r in state["results"] if r.get("type") == "not_found")
+        errors = sum(1 for r in state["results"] if r.get("type") == "error")
+        return {
+            "running": state["running"],
+            "current": state["current"],
+            "total": state["total"],
+            "current_company": state["current_company"],
+            "target": state["target"],
+            "found": found_count,
+            "not_found": not_found,
+            "errors": errors,
+            "summary": state["summary"],
+            "results": state["results"][-30:],
+        }
 
+    leads = _snap(leads_enrich_state)
+    posts = _snap(posts_enrich_state)
+
+    # Legacy compat: top-level fields reflect whichever is active (or leads by default)
+    active = leads if leads["running"] else posts
     return {
-        "running": enrichment_state["running"],
-        "current": enrichment_state["current"],
-        "total": enrichment_state["total"],
-        "current_company": enrichment_state["current_company"],
-        "target": enrichment_state["target"],
-        "found": found_count,
-        "not_found": not_found,
-        "errors": errors,
-        "summary": enrichment_state["summary"],
-        "results": enrichment_state["results"][-30:],  # last 30 for UI
+        **active,
+        "running": leads["running"] or posts["running"],
+        # Per-target states for parallel UI
+        "leads_worker": leads,
+        "posts_worker": posts,
     }
 
 
 @router.post("/api/leads/enrich/stop")
-def api_stop_enrichment():
-    """Stop the running enrichment."""
-    enrichment_state["running"] = False
-    return {"status": "stopped"}
+def api_stop_enrichment(target: str = None):
+    """Stop enrichment. Pass ?target=startup_leads or ?target=posts, or omit to stop both."""
+    if target == "startup_leads" or target is None:
+        with _leads_enrich_lock:
+            leads_enrich_state["running"] = False
+    if target == "posts" or target is None:
+        with _posts_enrich_lock:
+            posts_enrich_state["running"] = False
+    return {"status": "stopped", "stopped": target or "all"}
 
 
 @router.post("/api/leads/enrich/single/{lead_id}")

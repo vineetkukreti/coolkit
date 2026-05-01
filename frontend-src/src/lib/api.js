@@ -47,13 +47,18 @@ export const api = {
   findEmailForPost: (postId) => request(`/db/posts/${postId}/find-email`, { method: 'POST' }),
 
   // Email
+  verifyEmail: (email, company = '') => request('/email/verify', { method: 'POST', body: JSON.stringify({ email, company }) }),
   generateEmail: (data) => request('/email/generate', { method: 'POST', body: JSON.stringify(data) }),
   sendEmail: (data) => request('/email/send', { method: 'POST', body: JSON.stringify(data) }),
   bulkGenerate: (data) => request('/email/bulk-generate', { method: 'POST', body: JSON.stringify(data) }),
   bulkSend: (data = {}) => request('/email/bulk-send', { method: 'POST', body: JSON.stringify(data) }),
   getEmailWorkerStatus: () => request('/email/worker-status'),
-  stopEmailWorker: () => request('/email/worker-stop', { method: 'POST' }),
+  stopEmailWorker: (task) => request(`/email/worker-stop${task ? `?task=${task}` : ''}`, { method: 'POST' }),
   saveDraft: (data) => request('/email/save-draft', { method: 'POST', body: JSON.stringify(data) }),
+  pasteExtract: (rawText) => request('/email/paste-extract', { method: 'POST', body: JSON.stringify({ raw_text: rawText }) }),
+  getPasteHistory: () => request('/email/paste-history'),
+  getSkillDemand: () => request('/email/skill-demand'),
+  backfillSkills: () => request('/email/backfill-skills', { method: 'POST' }),
   getEmailHistory: () => request('/email/history'),
   getEmailConfig: () => request('/email/config-status'),
 
@@ -65,7 +70,7 @@ export const api = {
 
   // Scraper
   startScraper: (data) => request('/scraper/start', { method: 'POST', body: JSON.stringify(data) }),
-  stopScraper: () => request('/scraper/stop', { method: 'POST' }),
+  stopScraper: (source) => request(`/scraper/stop${source ? `?source=${source}` : ''}`, { method: 'POST' }),
   getScraperStatus: () => request('/scraper/status'),
   getScraperSources: () => request('/scraper/sources'),
 
@@ -177,7 +182,7 @@ export const api = {
   // Lead Enrichment
   startEnrichment: (data = {}) => request('/leads/enrich/start', { method: 'POST', body: JSON.stringify(data) }),
   getEnrichmentStatus: () => request('/leads/enrich/status'),
-  stopEnrichment: () => request('/leads/enrich/stop', { method: 'POST' }),
+  stopEnrichment: (target) => request(`/leads/enrich/stop${target ? `?target=${target}` : ''}`, { method: 'POST' }),
   enrichSingleLead: (id) => request(`/leads/enrich/single/${id}`, { method: 'POST' }),
 
   // Bounce Detection

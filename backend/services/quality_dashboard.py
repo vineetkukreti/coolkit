@@ -59,8 +59,8 @@ def _get_overview(conn: sqlite3.Connection) -> dict:
             SELECT
                 COUNT(*) as total_sent,
                 SUM(CASE WHEN status = 'replied' THEN 1 ELSE 0 END) as replied,
-                SUM(CASE WHEN status = 'bounced' THEN 1 ELSE 0 END) as bounced
-            FROM email_outreach WHERE status IN ('sent', 'replied', 'bounced')
+                SUM(CASE WHEN status = 'failed' AND error_type = 'bounced' THEN 1 ELSE 0 END) as bounced
+            FROM email_outreach WHERE status IN ('sent', 'replied', 'failed')
         """).fetchone()
         er = dict(email_row) if hasattr(email_row, 'keys') else {
             "total_sent": email_row[0], "replied": email_row[1], "bounced": email_row[2],
