@@ -371,7 +371,7 @@ Each source has: label, group, type/engine. HTML sources additionally have: urls
 | RATE_LIMITS.linkedin_easy_apply | 45-120s | `auto_apply.py` |
 | RATE_LIMITS.email_apply | 10-30s | `auto_apply.py` |
 | MAX_QUERIES | 150 | `config.py` |
-| EMAIL_BLOCKLIST | ["southguild", ...] | `email_service.py` |
+| EMAIL_BLOCKLIST | [employer_domain from profile] | `email_service.py` |
 
 ---
 

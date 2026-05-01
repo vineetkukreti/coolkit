@@ -81,6 +81,8 @@ export const api = {
   // Settings
   getAllSettings: () => request('/settings/all'),
   saveProfile: (data) => request('/settings/profile', { method: 'POST', body: JSON.stringify(data) }),
+  getSearchConfig: () => request('/settings/search-config'),
+  saveSearchConfig: (data) => request('/settings/search-config', { method: 'POST', body: JSON.stringify(data) }),
   saveSMTP: (data) => request('/settings/smtp', { method: 'POST', body: JSON.stringify(data) }),
   saveGemini: (data) => request('/settings/gemini', { method: 'POST', body: JSON.stringify(data) }),
   testEmail: () => request('/settings/test-email', { method: 'POST' }),
@@ -126,6 +128,9 @@ export const api = {
   startImapPolling: () => request('/email/imap-start', { method: 'POST' }),
   stopImapPolling: () => request('/email/imap-stop', { method: 'POST' }),
   getImapStatus: () => request('/email/imap-status'),
+  deepScanReplies: (since = '01-Mar-2026') => request(`/email/deep-scan?since=${encodeURIComponent(since)}`, { method: 'POST' }),
+  reclassifyReplies: () => request('/email/reclassify', { method: 'POST' }),
+  getReplyBreakdown: () => request('/email/reply-breakdown'),
 
   // Analytics – Outreach Insights
   getPatterns: () => request('/analytics/patterns'),

@@ -185,14 +185,11 @@ CREATE INDEX IF NOT EXISTS idx_outreach_status ON email_outreach(status);
 CREATE INDEX IF NOT EXISTS idx_outreach_post_id ON email_outreach(post_id);
 CREATE INDEX IF NOT EXISTS idx_outreach_created ON email_outreach(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_outreach_recipient ON email_outreach(recipient_email);
-CREATE INDEX IF NOT EXISTS idx_outreach_reply ON email_outreach(reply_detected_at);
 CREATE INDEX IF NOT EXISTS idx_pipeline_outreach ON pipeline_leads(outreach_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_url ON applications(job_url);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 CREATE INDEX IF NOT EXISTS idx_applications_date ON applications(applied_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_post_id ON jobs(post_id);
-CREATE INDEX IF NOT EXISTS idx_posts_smart_score ON posts(smart_score) WHERE smart_score IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source);
 CREATE INDEX IF NOT EXISTS idx_applications_post_id ON applications(post_id);
 CREATE INDEX IF NOT EXISTS idx_email_outreach_recipient_status ON email_outreach(recipient_email, status);
 
@@ -322,6 +319,10 @@ def run_migrations(conn):
             conn.execute(sql)
         except Exception:
             pass  # column already exists
+    # Create indexes on migration columns (must run after columns exist)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_smart_score ON posts(smart_score) WHERE smart_score IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_outreach_reply ON email_outreach(reply_detected_at)")
     conn.commit()
 
 
@@ -481,7 +482,8 @@ def insert_post(conn: sqlite3.Connection, post: dict) -> int | None:
 
         conn.execute("COMMIT")
     except Exception:
-        conn.execute("ROLLBACK")
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
 
     return post_id
@@ -718,7 +720,10 @@ def get_posts_for_outreach(conn: sqlite3.Connection) -> list[dict]:
     """Get posts with emails that haven't been contacted yet.
     Uses scalar subqueries for jobs to avoid duplicate rows when a post has multiple roles.
     Uses INSTR for multi-email matching (comma-separated email fields).
+    Filters out current employer domain (from profile config).
     """
+    from config import PROFILE
+    employer_domain = PROFILE.get("employer_domain", "")
     rows = conn.execute(
         """SELECT p.id, p.author_name, p.author_headline, p.author_profile, p.email, p.content,
                   p.links, p.domain_relevance, p.is_hiring,
@@ -728,7 +733,7 @@ def get_posts_for_outreach(conn: sqlite3.Connection) -> list[dict]:
            FROM posts p
            WHERE p.email IS NOT NULL AND p.email != ''
              AND p.is_hiring = 1
-             AND LOWER(p.email) NOT LIKE '%southguild%'
+             AND (? = '' OR LOWER(p.email) NOT LIKE '%' || LOWER(?) || '%')
              AND p.id NOT IN (SELECT post_id FROM email_outreach WHERE post_id IS NOT NULL AND status = 'sent')
              AND NOT EXISTS (
                  SELECT 1 FROM email_outreach eo
@@ -738,6 +743,7 @@ def get_posts_for_outreach(conn: sqlite3.Connection) -> list[dict]:
            ORDER BY
              CASE p.domain_relevance WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
              p.created_at DESC""",
+        (employer_domain, employer_domain),
     ).fetchall()
     return [dict(r) for r in rows]
 

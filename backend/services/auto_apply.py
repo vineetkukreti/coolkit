@@ -224,7 +224,7 @@ def _fill_form_fields(page, job_context: dict = None):
             from services.resume_selector import get_resume_for_job
             resume_path = Path(get_resume_for_job(job_context))
             if not resume_path.exists():
-                resume_path = Path(PROFILE.get("resume_path", "assets/resumes/default/vineet_kukreti_resume.pdf"))
+                resume_path = Path(PROFILE.get("resume_path", "assets/resumes/default/resume.pdf"))
             if resume_path.exists():
                 upload.set_input_files(str(resume_path))
     except Exception:
@@ -369,6 +369,7 @@ def _get_field_label(page, element) -> str:
 # ─── LLM-powered answer cache (avoid duplicate API calls per session) ────────
 
 _answer_cache = {}
+_answer_cache_lock = threading.Lock()
 
 
 def _answer_form_question(question: str, job_context: dict = None) -> str:
@@ -380,19 +381,22 @@ def _answer_form_question(question: str, job_context: dict = None) -> str:
 
     # Check cache first
     cache_key = question_lower[:80]
-    if cache_key in _answer_cache:
-        return _answer_cache[cache_key]
+    with _answer_cache_lock:
+        if cache_key in _answer_cache:
+            return _answer_cache[cache_key]
 
     # Known answers (no LLM needed)
     answer = _get_known_answer(question_lower)
     if answer:
-        _answer_cache[cache_key] = answer
+        with _answer_cache_lock:
+            _answer_cache[cache_key] = answer
         return answer
 
     # LLM-generated answer
     answer = _llm_answer_question(question, job_context)
     if answer:
-        _answer_cache[cache_key] = answer
+        with _answer_cache_lock:
+            _answer_cache[cache_key] = answer
     return answer
 
 
@@ -439,7 +443,7 @@ def _get_known_answer(question_lower: str) -> str:
 
     # Current company
     if any(kw in question_lower for kw in ["current company", "current employer", "present company"]):
-        return "Healthcare AI startup (US medical domain)"
+        return PROFILE.get("employer", "")
 
     # Current title
     if any(kw in question_lower for kw in ["current title", "current role", "job title"]):
@@ -465,15 +469,15 @@ def _llm_answer_question(question: str, job_context: dict = None) -> str:
         company = (job_context or {}).get("company", "the company")
         content = (job_context or {}).get("content", "")[:500]
 
+        from config import get_profile_context
+        profile_ctx = get_profile_context()
+
         prompt = f"""Answer this job application form question concisely (2-4 sentences max).
 
 QUESTION: {question}
 
-CANDIDATE: Vineet Kukreti, AI Engineer, {PROFILE.get('experience_years', 2)} years exp at Southguild Technologies.
-Building production healthcare AI platforms across dermatopathology and oncology.
-Skills: Python, FastAPI, Neo4j, LLMs (Claude/OpenAI/Cohere), knowledge graphs, Docker.
-Key projects: PathAssist (98.8% accuracy NLP-to-Cypher retrieval), Target Discovery ETL (100K+ records), Navya Oncology Pipeline (80% less manual work).
-Achievements: 3 patents, 2 IEEE papers, PMSS scholar.
+CANDIDATE:
+{profile_ctx}
 
 ROLE: {role} at {company}
 JOB CONTEXT: {content[:300] if content else 'Not available'}
@@ -648,17 +652,27 @@ def _generate_template_email(job: dict) -> str:
     company = job.get("company", "your company")
     name = PROFILE["name"]
 
+    title = PROFILE.get("current_title", "Engineer")
+    exp = PROFILE.get("experience_years", 0)
+    employer = PROFILE.get("employer", "")
+    skills_summary = PROFILE.get("skills_summary", "")
+
+    intro = f"I'm {name}"
+    if title:
+        intro += f", a {title}"
+    if exp:
+        intro += f" with {exp} years of experience"
+    intro += "."
+
+    current_line = ""
+    if employer:
+        current_line = f"\nCurrently at {employer}."
+    if skills_summary:
+        current_line += f" {skills_summary}" if current_line else f"\n{skills_summary}"
+
     body = f"""Hi,
 
-I'm {name}, an AI Engineer with {PROFILE.get('experience_years', 2)} years of experience building production AI/ML systems. I'm writing to express my interest in the {role} position at {company}.
-
-Currently, I'm working in the US healthcare domain, building fax automation systems for hospitals — solving real workflow problems with LLM-based systems, RAG pipelines, and API integrations.
-
-Key highlights:
-- Production experience with LLMs, RAG, and multi-agent AI systems
-- Strong Python background (FastAPI, PyTorch, LangChain, Neo4j)
-- Healthcare AI domain expertise with compliance requirements
-- Built knowledge graph systems and ETL pipelines at scale
+{intro} I'm writing to express my interest in the {role} position at {company}.{current_line}
 
 I've attached my resume for your review. I'd love to discuss how my experience aligns with what you're building.
 

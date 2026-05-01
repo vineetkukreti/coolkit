@@ -195,7 +195,7 @@ export default function Scraper() {
         }
         setSources(prev => ({ ...init, ...prev }))
       } catch (e) {
-        console.error('Failed to load sources:', e)
+        /* silent */
       }
     }
     loadSources()
@@ -640,7 +640,7 @@ export default function Scraper() {
               {/* Start button */}
               <button
                 onClick={handleStartScraping}
-                disabled={!isConnected}
+                disabled={!isConnected || scraping}
                 className="w-full flex items-center justify-center gap-2.5 py-3.5 bg-gradient-to-r from-accent to-accent/80 hover:from-accent/90 hover:to-accent/70 text-white text-sm font-semibold rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-accent/20"
               >
                 <Play size={16} />

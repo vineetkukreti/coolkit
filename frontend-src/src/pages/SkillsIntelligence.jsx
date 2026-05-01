@@ -70,6 +70,7 @@ function SkillsDemandTab() {
     try {
       await api.analyzeSkills({ use_llm: useLlm, llm_sample_size: 100 })
       // Poll progress
+      if (pollRef.current) clearInterval(pollRef.current)
       pollRef.current = setInterval(async () => {
         try {
           const st = await api.getAnalysisStatus()

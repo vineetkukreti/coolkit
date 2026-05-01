@@ -78,7 +78,7 @@ function ToastItem({ id, title, description, type, onClose }) {
         )}
         {description && (
           <p className={`text-xs text-fg-secondary leading-relaxed ${title ? 'mt-0.5' : ''}`}>
-            {description}
+            {typeof description === 'string' ? description : JSON.stringify(description)}
           </p>
         )}
       </div>

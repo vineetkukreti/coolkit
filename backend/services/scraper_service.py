@@ -157,12 +157,11 @@ def _run_web_scraper(source_name, scraper_fn, max_posts, on_event):
     on_event({"type": "info", "message": f"Starting {source_name} scraper (waiting for browser slot)..."})
 
     _browser_semaphore.acquire()
-    on_event({"type": "info", "message": f"Starting {source_name} scraper (launching browser)..."})
-
     pw = None
     browser = None
     conn = None
     try:
+        on_event({"type": "info", "message": f"Starting {source_name} scraper (launching browser)..."})
         conn = init_db()
         pw = sync_playwright().start()
         browser = pw.chromium.launch(
@@ -366,12 +365,11 @@ def _run_career_link_scraper(source_name, max_visits, on_event):
     on_event({"type": "info", "message": "Starting career link follower (waiting for browser slot)..."})
 
     _browser_semaphore.acquire()
-    on_event({"type": "info", "message": "Starting career link follower..."})
-
     pw = None
     browser = None
     conn = None
     try:
+        on_event({"type": "info", "message": "Starting career link follower..."})
         conn = init_db()
         pw = sync_playwright().start()
         browser = pw.chromium.launch(
@@ -430,176 +428,179 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
             scraper_state["sources"][source] = _init_source_state()
             scraper_state["active_sources"].add(source)
 
-    # Compute per-source budgets
-    per_source = max(50, max_posts // len(sources)) if len(sources) > 1 else max_posts
+    try:
+        # Compute per-source budgets
+        per_source = max(50, max_posts // len(sources)) if len(sources) > 1 else max_posts
 
-    # Create a shared DedupCache for cross-scraper deduplication (thread-safe)
-    from db import DedupCache
-    _shared_conn = init_db()
-    shared_dedup = DedupCache(_shared_conn)
-    _shared_conn.close()
+        # Create a shared DedupCache for cross-scraper deduplication (thread-safe)
+        from db import DedupCache
+        _shared_conn = init_db()
+        shared_dedup = DedupCache(_shared_conn)
+        _shared_conn.close()
 
-    threads = []
+        threads = []
 
-    # ── LinkedIn-based sources: must all run on browser thread (sequentially) ──
-    linkedin_sources = [s for s in sources if s in ("linkedin", "feed", "hashtags", "enricher", "deepfetch")]
-    if linkedin_sources:
-        def _browser_sources_runner():
-            """Run all LinkedIn-based sources sequentially on the browser thread."""
-            for src in linkedin_sources:
-                with _scraper_lock:
-                    still_running = scraper_state["running"]
-                if not still_running:
-                    break
-                on_event = _make_source_callback(src)
-                budget = per_source
+        # ── LinkedIn-based sources: must all run on browser thread (sequentially) ──
+        linkedin_sources = [s for s in sources if s in ("linkedin", "feed", "hashtags", "enricher", "deepfetch")]
+        if linkedin_sources:
+            def _browser_sources_runner():
+                """Run all LinkedIn-based sources sequentially on the browser thread."""
+                for src in linkedin_sources:
+                    with _scraper_lock:
+                        still_running = scraper_state["running"]
+                    if not still_running:
+                        break
+                    on_event = _make_source_callback(src)
+                    budget = per_source
 
-                if src == "linkedin":
-                    _run_linkedin_scraper(budget, on_event)
-                elif src == "feed":
-                    _run_linkedin_feed_scraper(budget, on_event)
-                elif src == "hashtags":
-                    _run_linkedin_hashtag_scraper(budget, on_event)
-                elif src == "enricher":
-                    _run_enricher(min(budget, 150), on_event)
-                elif src == "deepfetch":
-                    _run_deep_fetcher(min(budget, 100), on_event)
+                    if src == "linkedin":
+                        _run_linkedin_scraper(budget, on_event)
+                    elif src == "feed":
+                        _run_linkedin_feed_scraper(budget, on_event)
+                    elif src == "hashtags":
+                        _run_linkedin_hashtag_scraper(budget, on_event)
+                    elif src == "enricher":
+                        _run_enricher(min(budget, 150), on_event)
+                    elif src == "deepfetch":
+                        _run_deep_fetcher(min(budget, 100), on_event)
 
-        def _browser_thread():
-            _run_on_browser_thread(_browser_sources_runner, timeout=14400)
+            def _browser_thread():
+                _run_on_browser_thread(_browser_sources_runner, timeout=14400)
 
-        t = threading.Thread(target=_browser_thread, daemon=True)
-        threads.append(t)
-        t.start()
+            t = threading.Thread(target=_browser_thread, daemon=True)
+            threads.append(t)
+            t.start()
 
-    # ── API scrapers: no browser needed, lightweight HTTP calls ──
-    from scrapers.api_scrapers import (
-        scrape_remoteok, scrape_himalayas, scrape_hn_hiring,
-        scrape_remotive, scrape_wwr_rss, scrape_workingnomads,
-        scrape_greenhouse, scrape_lever, scrape_ashby, scrape_jobspy,
-    )
+        # ── API scrapers: no browser needed, lightweight HTTP calls ──
+        from scrapers.api_scrapers import (
+            scrape_remoteok, scrape_himalayas, scrape_hn_hiring,
+            scrape_remotive, scrape_wwr_rss, scrape_workingnomads,
+            scrape_greenhouse, scrape_lever, scrape_ashby, scrape_jobspy,
+        )
 
-    api_source_map = {
-        "remoteok": scrape_remoteok,
-        "himalayas": scrape_himalayas,
-        "hn": scrape_hn_hiring,
-        "remotive": scrape_remotive,
-        "wwr_rss": scrape_wwr_rss,
-        "workingnomads": scrape_workingnomads,
-        "greenhouse": scrape_greenhouse,
-        "lever": scrape_lever,
-        "ashby": scrape_ashby,
-        "jobspy": scrape_jobspy,
-    }
+        api_source_map = {
+            "remoteok": scrape_remoteok,
+            "himalayas": scrape_himalayas,
+            "hn": scrape_hn_hiring,
+            "remotive": scrape_remotive,
+            "wwr_rss": scrape_wwr_rss,
+            "workingnomads": scrape_workingnomads,
+            "greenhouse": scrape_greenhouse,
+            "lever": scrape_lever,
+            "ashby": scrape_ashby,
+            "jobspy": scrape_jobspy,
+        }
 
-    for source in sources:
-        if source in linkedin_sources or source == "career_links":
-            continue
-        if source in api_source_map:
+        for source in sources:
+            if source in linkedin_sources or source == "career_links":
+                continue
+            if source in api_source_map:
+                on_event = _make_source_callback(source)
+                budget = min(per_source, max_posts)
+                scraper_fn = api_source_map[source]
+                t = threading.Thread(
+                    target=_run_api_scraper,
+                    args=(source, scraper_fn, budget, on_event),
+                    daemon=True,
+                )
+                threads.append(t)
+                t.start()
+
+        # ── Generic scrapers (HTML + API, config-driven, no browser) ──
+        from scrapers.generic_scrapers import scrape_generic_html, scrape_generic_api
+        from config_sources import GENERIC_HTML_SOURCES, GENERIC_API_SOURCES
+
+        for source in sources:
+            if source in linkedin_sources or source == "career_links":
+                continue
+            if source in api_source_map:
+                continue  # Already handled above
+            if source in GENERIC_HTML_SOURCES:
+                on_event = _make_source_callback(source)
+                budget = min(per_source, max_posts)
+                t = threading.Thread(
+                    target=_run_api_scraper,
+                    args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_html(sk, p, c, max_posts, on_event), budget, on_event),
+                    daemon=True,
+                )
+                threads.append(t)
+                t.start()
+                continue
+            if source in GENERIC_API_SOURCES:
+                on_event = _make_source_callback(source)
+                budget = min(per_source, max_posts)
+                t = threading.Thread(
+                    target=_run_api_scraper,
+                    args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_api(sk, p, c, max_posts, on_event), budget, on_event),
+                    daemon=True,
+                )
+                threads.append(t)
+                t.start()
+                continue
+
+        # ── Web scrapers: each gets its own browser in its own thread (parallel) ──
+        from scrapers.web_scrapers import (
+            scrape_indeed, scrape_naukri, scrape_arcdev,
+            scrape_weworkremotely, scrape_japandev,
+            scrape_euremotejobs, scrape_bayt, scrape_remoteai,
+        )
+
+        web_source_map = {
+            "google": scrape_google,
+            "wellfound": scrape_wellfound_web,
+            "yc": scrape_yc_jobs,
+            "indeed": scrape_indeed,
+            "naukri": scrape_naukri,
+            "arcdev": scrape_arcdev,
+            "weworkremotely": scrape_weworkremotely,
+            "japandev": scrape_japandev,
+            "euremotejobs": scrape_euremotejobs,
+            "bayt": scrape_bayt,
+            "remoteai": scrape_remoteai,
+        }
+
+        for source in sources:
+            if source in linkedin_sources or source in api_source_map:
+                continue
+            if source == "career_links":
+                # Career link follower: own browser, parallel thread
+                on_event = _make_source_callback(source)
+                budget = min(per_source, 50)
+                t = threading.Thread(
+                    target=_run_career_link_scraper,
+                    args=(source, budget, on_event),
+                    daemon=True,
+                )
+                threads.append(t)
+                t.start()
+                continue
+            if source not in web_source_map:
+                continue
             on_event = _make_source_callback(source)
             budget = min(per_source, max_posts)
-            scraper_fn = api_source_map[source]
+            scraper_fn = web_source_map[source]
             t = threading.Thread(
-                target=_run_api_scraper,
+                target=_run_web_scraper,
                 args=(source, scraper_fn, budget, on_event),
                 daemon=True,
             )
             threads.append(t)
             t.start()
 
-    # ── Generic scrapers (HTML + API, config-driven, no browser) ──
-    from scrapers.generic_scrapers import scrape_generic_html, scrape_generic_api
-    from config_sources import GENERIC_HTML_SOURCES, GENERIC_API_SOURCES
-
-    for source in sources:
-        if source in linkedin_sources or source == "career_links":
-            continue
-        if source in api_source_map:
-            continue  # Already handled above
-        if source in GENERIC_HTML_SOURCES:
-            on_event = _make_source_callback(source)
-            budget = min(per_source, max_posts)
-            t = threading.Thread(
-                target=_run_api_scraper,
-                args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_html(sk, p, c, max_posts, on_event), budget, on_event),
-                daemon=True,
-            )
-            threads.append(t)
-            t.start()
-            continue
-        if source in GENERIC_API_SOURCES:
-            on_event = _make_source_callback(source)
-            budget = min(per_source, max_posts)
-            t = threading.Thread(
-                target=_run_api_scraper,
-                args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_api(sk, p, c, max_posts, on_event), budget, on_event),
-                daemon=True,
-            )
-            threads.append(t)
-            t.start()
-            continue
-
-    # ── Web scrapers: each gets its own browser in its own thread (parallel) ──
-    from scrapers.web_scrapers import (
-        scrape_indeed, scrape_naukri, scrape_arcdev,
-        scrape_weworkremotely, scrape_japandev,
-        scrape_euremotejobs, scrape_bayt, scrape_remoteai,
-    )
-
-    web_source_map = {
-        "google": scrape_google,
-        "wellfound": scrape_wellfound_web,
-        "yc": scrape_yc_jobs,
-        "indeed": scrape_indeed,
-        "naukri": scrape_naukri,
-        "arcdev": scrape_arcdev,
-        "weworkremotely": scrape_weworkremotely,
-        "japandev": scrape_japandev,
-        "euremotejobs": scrape_euremotejobs,
-        "bayt": scrape_bayt,
-        "remoteai": scrape_remoteai,
-    }
-
-    for source in sources:
-        if source in linkedin_sources or source in api_source_map:
-            continue
-        if source == "career_links":
-            # Career link follower: own browser, parallel thread
-            on_event = _make_source_callback(source)
-            budget = min(per_source, 50)
-            t = threading.Thread(
-                target=_run_career_link_scraper,
-                args=(source, budget, on_event),
-                daemon=True,
-            )
-            threads.append(t)
-            t.start()
-            continue
-        if source not in web_source_map:
-            continue
-        on_event = _make_source_callback(source)
-        budget = min(per_source, max_posts)
-        scraper_fn = web_source_map[source]
-        t = threading.Thread(
-            target=_run_web_scraper,
-            args=(source, scraper_fn, budget, on_event),
-            daemon=True,
-        )
-        threads.append(t)
-        t.start()
-
-    # Wait for all threads to complete
-    for t in threads:
-        t.join()
-
-    # Remove this coordinator's sources from active set
-    with _scraper_lock:
-        for source in sources:
-            scraper_state["active_sources"].discard(source)
-        # Only set running=False if no other coordinator is still active
-        if not scraper_state["active_sources"]:
-            scraper_state["status"] = "error" if all(
-                s["status"] == "error" for s in scraper_state["sources"].values()
-            ) else "done"
-            scraper_state["running"] = False
-            scraper_state["started_at"] = None
+        # Wait for all threads to complete
+        for t in threads:
+            t.join()
+    finally:
+        # Remove this coordinator's sources from active set
+        with _scraper_lock:
+            for source in sources:
+                scraper_state["active_sources"].discard(source)
+            # Only set running=False if no other coordinator is still active
+            if not scraper_state["active_sources"]:
+                # Only evaluate sources from this coordinator run
+                coordinator_sources = {s: scraper_state["sources"].get(s) for s in sources}
+                scraper_state["status"] = "error" if all(
+                    s["status"] == "error" for s in coordinator_sources.values() if s
+                ) else "done"
+                scraper_state["running"] = False
+                scraper_state["started_at"] = None

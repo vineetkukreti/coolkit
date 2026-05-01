@@ -5,12 +5,30 @@
     "email": "you@example.com",
     "phone": "+1-000-000-0000",
     "resume_path": "assets/resumes/default/resume.pdf",
-    "location": "Your Location",
+    "location": "Your City, Country",
     "experience_years": 0,
-    "current_title": "Engineer",
+    "current_title": "Software Engineer",
+    "employer": "Current Company",
+    "employer_domain": "company.com",
     "linkedin": "https://linkedin.com/in/yourprofile",
     "github": "https://github.com/yourprofile",
-    "website": "https://yourwebsite.com",
+    "website": "",
+    "skills_summary": "Python, React, Docker, AWS — describe your core tech stack here",
+    "education": "B.S. in Computer Science, University Name",
+    "projects": [
+        {
+            "name": "Project Alpha",
+            "description": "Built a production ML pipeline processing 10K records/day with 95% accuracy"
+        },
+        {
+            "name": "Project Beta",
+            "description": "Full-stack web app with React + FastAPI serving 1K daily users"
+        }
+    ],
+    "achievements": [
+        "Published 2 papers at top conferences",
+        "Open source project with 500+ GitHub stars"
+    ],
     "notice_period_days": 30,
     "desired_salary": 0,
     "current_salary": 0,

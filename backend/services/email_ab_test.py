@@ -95,10 +95,9 @@ def generate_ab_variants(job: dict) -> dict:
 
 STRATEGY: {strategy['instruction']}
 
-CANDIDATE: {PROFILE['name']}, AI Engineer, {PROFILE.get('experience_years', 2)} years.
+CANDIDATE: {PROFILE['name']}, {PROFILE.get('current_title', 'Engineer')}, {PROFILE.get('experience_years', 0)} years.
 Skills: {skills_list}
-Currently: Building healthcare AI systems (fax automation for US hospitals)
-Key projects: Enterprise RAG (10K+ docs), Healthcare AI pipeline (Neo4j), Biomedical ETL (50K+ records/day)
+{('Currently at ' + PROFILE['employer'] + '. ') if PROFILE.get('employer') else ''}{PROFILE.get('skills_summary', '')}
 
 TARGET: {role} at {company}
 JOB CONTEXT:
@@ -109,7 +108,7 @@ RULES:
 - NO "I'm passionate about" or "caught my eye"
 - Lead with proof, not assertions
 - Reference something specific about the company/role
-- End with "I've attached my resume" + "Best,\\nVineet"
+- End with "I've attached my resume" + "Best,\\n{PROFILE.get('first_name', '') or PROFILE.get('name', '').split()[0] if PROFILE.get('name') else 'User'}"
 
 Return ONLY:
 Subject: <subject line>

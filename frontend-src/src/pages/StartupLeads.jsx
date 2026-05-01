@@ -100,6 +100,7 @@ function EmailFinderPanel({ onComplete }) {
   const startEnrichment = async () => {
     try {
       await api.startEnrichment({ max_leads: maxLeads, target })
+      if (pollRef.current) clearInterval(pollRef.current)
       pollRef.current = setInterval(async () => {
         try {
           const data = await api.getEnrichmentStatus()
@@ -113,7 +114,7 @@ function EmailFinderPanel({ onComplete }) {
         } catch {}
       }, 1500)
     } catch (err) {
-      console.error('Failed to start enrichment:', err)
+      /* silent */
     }
   }
 
@@ -330,7 +331,7 @@ function LeadRow({ lead, onStatusChange, onFindEmail }) {
         onFindEmail(lead.id, data.saved)
       }
     } catch (err) {
-      console.error('Find email failed:', err)
+      /* silent */
     } finally {
       setFinding(false)
     }
@@ -572,7 +573,7 @@ export default function StartupLeads() {
       setLeads(data.leads || [])
       setTotal(data.total || 0)
     } catch (err) {
-      console.error('Failed to fetch leads:', err)
+      /* silent */
     } finally {
       setLoading(false)
     }
@@ -607,7 +608,7 @@ export default function StartupLeads() {
       await api.updateLead(leadId, { email_status: newStatus })
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, email_status: newStatus } : l))
     } catch (err) {
-      console.error('Failed to update status:', err)
+      /* silent */
     }
   }
 
@@ -622,7 +623,7 @@ export default function StartupLeads() {
       await api.importLeads()
       await refreshAll()
     } catch (err) {
-      console.error('Import failed:', err)
+      /* silent */
     } finally {
       setImporting(false)
     }

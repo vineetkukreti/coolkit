@@ -51,7 +51,7 @@ GENERIC_API_SOURCES = {
         "label": "USAJobs",
         "group": "us",
         "url": "https://data.usajobs.gov/api/search?Keyword={query}&ResultsPerPage=50",
-        "headers": {"Authorization-Key": "", "User-Agent": "vineet@job-parser"},
+        "headers": {"Authorization-Key": "", "User-Agent": "careerkit-job-parser/1.0"},
         "jobs_path": "SearchResult.SearchResultItems",
         "fields": {
             "title": "MatchedObjectDescriptor.PositionTitle",

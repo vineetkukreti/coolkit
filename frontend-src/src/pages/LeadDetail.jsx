@@ -223,14 +223,12 @@ export default function LeadDetail() {
               <h3 className="text-xs font-semibold text-fg-primary mb-3">Quick Actions</h3>
               <div className="space-y-1.5">
                 {[
-                  { icon: Send, label: "Send Follow-up Email", color: "text-accent" },
-                  { icon: Calendar, label: "Schedule Interview", color: "text-info" },
-                  { icon: Paperclip, label: "Attach Resume", color: "text-fg-secondary" },
-                  { icon: XCircle, label: "Mark as Rejected", color: "text-danger" },
+                  { icon: Send, label: "Send Follow-up Email", color: "text-accent", handler: () => navigate(`/outreach?lead=${lead?.id}`) },
+                  { icon: Calendar, label: "Schedule Interview", color: "text-info", handler: () => handleStageChange("interviewing") },
+                  { icon: Paperclip, label: "Attach Resume", color: "text-fg-secondary", handler: () => toast({ type: "info", title: "Use the email composer to attach your resume" }) },
+                  { icon: XCircle, label: "Mark as Rejected", color: "text-danger", handler: () => handleStageChange("rejected") },
                 ].map((action, i) => (
-                  <button key={i} onClick={() => {
-                    if (action.label === "Mark as Rejected") handleStageChange("rejected");
-                  }}
+                  <button key={i} onClick={action.handler}
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${action.color} hover:bg-bg-tertiary transition-colors text-left`}>
                     <action.icon size={13} /> {action.label}
                   </button>

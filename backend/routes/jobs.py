@@ -154,40 +154,55 @@ def search_jobs(req: SearchRequest):
 @router.post("/api/apply")
 def mark_applied(req: ApplyRequest):
     conn = init_db()
-    log_application(
-        conn, req.platform, req.url, req.title, req.company, req.location,
-        status="applied", apply_method="manual",
-    )
-    return {"status": "ok", "message": f"Logged application to {req.company}"}
+    try:
+        log_application(
+            conn, req.platform, req.url, req.title, req.company, req.location,
+            status="applied", apply_method="manual",
+        )
+        return {"status": "ok", "message": f"Logged application to {req.company}"}
+    finally:
+        conn.close()
 
 
 @router.post("/api/skip")
 def mark_skipped(req: ApplyRequest):
     conn = init_db()
-    log_application(
-        conn, req.platform, req.url, req.title, req.company, req.location,
-        status="skipped", apply_method="manual",
-    )
-    return {"status": "ok"}
+    try:
+        log_application(
+            conn, req.platform, req.url, req.title, req.company, req.location,
+            status="skipped", apply_method="manual",
+        )
+        return {"status": "ok"}
+    finally:
+        conn.close()
 
 
 @router.get("/api/applications")
 def api_get_applications(status: str | None = None):
     conn = init_db()
-    apps = get_applications(conn, status=status)
-    return {"applications": apps, "total": len(apps)}
+    try:
+        apps = get_applications(conn, status=status)
+        return {"applications": apps, "total": len(apps)}
+    finally:
+        conn.close()
 
 
 @router.get("/api/stats")
 def get_apply_stats():
     conn = init_db()
-    return get_application_stats(conn)
+    try:
+        return get_application_stats(conn)
+    finally:
+        conn.close()
 
 
 @router.get("/api/applications/quota")
 def api_get_quota():
     conn = init_db()
-    return get_today_quota(conn)
+    try:
+        return get_today_quota(conn)
+    finally:
+        conn.close()
 
 
 @router.get("/api/applications/export")

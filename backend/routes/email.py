@@ -556,11 +556,13 @@ def api_bulk_generate(req: BulkEmailRequest):
     # If no post_ids given, auto-select all outreach-ready posts + startup leads without drafts
     post_ids = req.post_ids
     if not post_ids:
+        from config import PROFILE as _PROFILE
+        _employer_domain = _PROFILE.get("employer_domain", "")
         rows = db_conn.execute(
             """SELECT p.id FROM posts p
                WHERE p.email IS NOT NULL AND p.email != ''
                  AND p.is_hiring = 1
-                 AND LOWER(p.email) NOT LIKE '%southguild%'
+                 AND (? = '' OR LOWER(p.email) NOT LIKE '%' || LOWER(?) || '%')
                  AND p.id NOT IN (SELECT post_id FROM email_outreach WHERE post_id IS NOT NULL AND status IN ('sent', 'draft'))
                  AND NOT EXISTS (
                      SELECT 1 FROM email_outreach eo
@@ -568,7 +570,8 @@ def api_bulk_generate(req: BulkEmailRequest):
                        AND INSTR(p.email, eo.recipient_email) > 0
                  )
                ORDER BY CASE p.domain_relevance WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END
-            """
+            """,
+            (_employer_domain, _employer_domain),
         ).fetchall()
         post_ids = [r["id"] for r in rows]
 
@@ -762,6 +765,53 @@ def api_imap_status():
     return get_imap_status()
 
 
+@router.post("/api/email/deep-scan")
+def api_deep_scan(since: str = "01-Mar-2026"):
+    """Deep backfill scan for ALL missed replies since a date.
+    Searches INBOX, All Mail, Important, and Spam folders.
+    Use this to catch every reply you've missed."""
+    from services.email_service import deep_scan_replies
+    return deep_scan_replies(since_date=since)
+
+
+@router.post("/api/email/reclassify")
+def api_reclassify_replies():
+    """Re-classify all existing replies with updated rejection/interest keywords.
+    Run this after keyword patterns are updated to fix mis-classified replies."""
+    from services.email_service import reclassify_replies
+    return reclassify_replies()
+
+
+@router.get("/api/email/reply-breakdown")
+def api_reply_breakdown():
+    """Detailed breakdown of all replies by type, with previews."""
+    conn = _get_db()
+    replies = conn.execute(
+        "SELECT id, recipient_email, subject, reply_type, reply_preview, reply_detected_at, sent_at "
+        "FROM email_outreach WHERE status = 'replied' ORDER BY reply_detected_at DESC"
+    ).fetchall()
+    breakdown = {"interested": [], "rejection": [], "auto_reply": [], "info": []}
+    for r in replies:
+        entry = {
+            "id": r["id"],
+            "to": r["recipient_email"],
+            "subject": r["subject"],
+            "reply_preview": r["reply_preview"],
+            "reply_detected_at": r["reply_detected_at"],
+            "sent_at": r["sent_at"],
+        }
+        rtype = r["reply_type"] or "info"
+        breakdown.setdefault(rtype, []).append(entry)
+    return {
+        "total_replies": len(replies),
+        "interested": len(breakdown.get("interested", [])),
+        "rejection": len(breakdown.get("rejection", [])),
+        "auto_reply": len(breakdown.get("auto_reply", [])),
+        "info": len(breakdown.get("info", [])),
+        "breakdown": breakdown,
+    }
+
+
 @router.get("/api/email/stats")
 def api_email_stats():
     """Comprehensive email delivery stats."""
@@ -830,6 +880,18 @@ def api_email_stats():
     ).fetchall():
         top_bounce_domains.append({"domain": row[0], "bounces": row[1]})
 
+    # Reply type breakdown
+    reply_types = {}
+    for row in conn.execute(
+        "SELECT reply_type, COUNT(*) as cnt FROM email_outreach WHERE status='replied' AND reply_type IS NOT NULL GROUP BY reply_type"
+    ).fetchall():
+        reply_types[row[0]] = row[1]
+
+    # Unreplied emails older than 3 days (potential missed replies)
+    unreplied_old = conn.execute(
+        "SELECT COUNT(*) FROM email_outreach WHERE status='sent' AND reply_detected_at IS NULL AND sent_at < datetime('now', '-3 days')"
+    ).fetchone()[0]
+
     return {
         "total": total,
         "delivered": delivered,
@@ -841,6 +903,8 @@ def api_email_stats():
         "bounce_rate": f"{(bounced / max(sent + bounced, 1) * 100):.1f}%",
         "delivery_rate": f"{(delivered / max(delivered + failed, 1) * 100):.1f}%",
         "reply_rate": f"{(replied / max(delivered, 1) * 100):.1f}%",
+        "reply_types": reply_types,
+        "unreplied_awaiting_scan": unreplied_old,
         "errors": errors,
         "recent_failures": recent_failures,
         "worker_history": worker_history,

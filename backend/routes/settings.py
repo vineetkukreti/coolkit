@@ -92,9 +92,27 @@ class ProfileUpdate(BaseModel):
     website: str = ""
     location: str = ""
     current_title: str = ""
-    experience_years: int = 2
+    employer: str = ""
+    employer_domain: str = ""
+    experience_years: int = 0
     notice_period_days: int = 30
     resume_path: str = ""
+    skills_summary: str = ""
+    education: str = ""
+    education_level: str = "Bachelor's Degree"
+    certifications: str = "None"
+    projects: list = []
+    achievements: list = []
+    desired_salary: int = 0
+    current_salary: int = 0
+    require_visa: str = "No"
+    us_citizenship: str = "Not Applicable"
+    willing_to_relocate: str = "Yes"
+    previously_worked_here: str = "No"
+    gender: str = "Decline to self-identify"
+    ethnicity: str = "Decline to self-identify"
+    disability_status: str = "I don't wish to answer"
+    veteran_status: str = "I am not a protected veteran"
 
 
 class SmtpUpdate(BaseModel):
@@ -151,8 +169,14 @@ def api_save_profile(req: ProfileUpdate, request: Request):
     _check_settings_token(request)
     updates = req.model_dump(exclude_unset=True)
     for key, val in updates.items():
-        if val is not None and val != "":
+        if val is not None:
             PROFILE[key] = val
+
+    # Auto-derive first_name and last_name from name
+    if "name" in updates and PROFILE.get("name"):
+        parts = PROFILE["name"].strip().split()
+        PROFILE["first_name"] = parts[0]
+        PROFILE["last_name"] = parts[-1] if len(parts) > 1 else ""
 
     # Write to JSON file (safe — no code execution)
     profile_path = Path("config/profile.json")
@@ -198,6 +222,65 @@ def api_save_gemini(req: GeminiUpdate, request: Request):
     return {"status": "ok", "message": "Gemini API key saved"}
 
 
+@router.get("/api/settings/search-config")
+def api_get_search_config():
+    """Get current search configuration."""
+    from config import (
+        TARGET_ROLES, DOMAIN_KEYWORDS, RESUME_SKILLS, ACTIVE_REGIONS, DEFAULTS, REGIONS,
+    )
+    return {
+        "target_roles": TARGET_ROLES,
+        "domain_keywords": DOMAIN_KEYWORDS,
+        "resume_skills": RESUME_SKILLS,
+        "active_regions": ACTIVE_REGIONS,
+        "available_regions": list(REGIONS.keys()),
+        "default_location": DEFAULTS.get("location", ""),
+        "max_jobs": DEFAULTS.get("max_jobs", 25),
+        "mode": DEFAULTS.get("mode", "semi"),
+    }
+
+
+@router.post("/api/settings/search-config")
+def api_save_search_config(req: dict, request: Request):
+    """Save search configuration to config/search_config.json and update in-memory."""
+    _check_settings_token(request)
+    import config as cfg
+
+    config_data = {}
+    if "target_roles" in req:
+        config_data["target_roles"] = req["target_roles"]
+        cfg.TARGET_ROLES.clear()
+        cfg.TARGET_ROLES.extend(req["target_roles"])
+    if "domain_keywords" in req:
+        config_data["domain_keywords"] = req["domain_keywords"]
+        cfg.DOMAIN_KEYWORDS.clear()
+        cfg.DOMAIN_KEYWORDS.extend(req["domain_keywords"])
+    if "resume_skills" in req:
+        config_data["resume_skills"] = req["resume_skills"]
+        cfg.RESUME_SKILLS.clear()
+        cfg.RESUME_SKILLS.update(req["resume_skills"])
+    if "active_regions" in req:
+        config_data["active_regions"] = req["active_regions"]
+        cfg.ACTIVE_REGIONS.clear()
+        cfg.ACTIVE_REGIONS.extend(req["active_regions"])
+    if "default_location" in req:
+        config_data["default_location"] = req["default_location"]
+        cfg.DEFAULTS["location"] = req["default_location"]
+    if "max_jobs" in req:
+        config_data["max_jobs"] = req["max_jobs"]
+        cfg.DEFAULTS["max_jobs"] = req["max_jobs"]
+    if "mode" in req:
+        config_data["mode"] = req["mode"]
+        cfg.DEFAULTS["mode"] = req["mode"]
+
+    # Merge with existing config and save
+    existing = cfg._load_search_config()
+    existing.update(config_data)
+    cfg._save_search_config(existing)
+
+    return {"status": "ok", "message": "Search config saved"}
+
+
 @router.post("/api/settings/test-email")
 def api_test_email():
     """Send a test email to verify SMTP config works."""
@@ -225,6 +308,8 @@ def api_upload_resume(file: UploadFile = File(...)):
     safe_filename = Path(file.filename).name
     dest = Path("assets") / safe_filename
     content = file.file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Max 10MB.")
     dest.write_bytes(content)
 
     # Update PROFILE in memory and persist to JSON

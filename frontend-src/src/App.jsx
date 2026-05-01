@@ -39,7 +39,10 @@ function AppShell() {
       setShowSessionBanner(false)
       setBannerDismissed(false)
     }
+    prevConnected.current = isConnected
+  }, [isConnected])
 
+  useEffect(() => {
     if (prevConnected.current && !isConnected && !checking) {
       // Transition: was connected → now not connected
       if (running && !logged_in) {
@@ -50,8 +53,6 @@ function AppShell() {
       }
       // Browser fully stopped — BrowserBar handles reconnection
     }
-
-    prevConnected.current = isConnected
   }, [isConnected, running, logged_in, checking, bannerDismissed])
 
   const handleReconnect = async () => {

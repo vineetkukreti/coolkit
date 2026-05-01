@@ -443,8 +443,14 @@ export default function Settings() {
   // Profile form
   const [profile, setProfile] = useState({
     name: '', email: '', phone: '', linkedin: '', github: '', website: '',
-    location: '', current_title: '', experience_years: 2, notice_period_days: 30,
-    resume_path: '',
+    location: '', current_title: '', experience_years: 0, notice_period_days: 30,
+    resume_path: '', employer: '', employer_domain: '',
+    current_salary: 0, desired_salary: 0,
+    education: '', education_level: "Bachelor's Degree", certifications: '',
+    skills_summary: '', projects: [], achievements: [],
+    require_visa: 'No', us_citizenship: 'Not Applicable', willing_to_relocate: 'Yes',
+    gender: 'Decline to self-identify', ethnicity: 'Decline to self-identify',
+    disability_status: "I don't wish to answer", veteran_status: 'I am not a protected veteran',
   })
   const [profileSaving, setProfileSaving] = useState(false)
 
@@ -465,6 +471,17 @@ export default function Settings() {
   const [geminiSaving, setGeminiSaving] = useState(false)
   const [showGeminiKey, setShowGeminiKey] = useState(false)
 
+  // Search config
+  const [searchConfig, setSearchConfig] = useState({
+    target_roles: [], domain_keywords: [], resume_skills: {},
+    active_regions: [], available_regions: [],
+    default_location: '', max_jobs: 25, mode: 'semi',
+  })
+  const [searchSaving, setSearchSaving] = useState(false)
+  const [newRole, setNewRole] = useState('')
+  const [newKeyword, setNewKeyword] = useState('')
+  const [newSkill, setNewSkill] = useState('')
+  const [newSkillWeight, setNewSkillWeight] = useState(3)
 
   useEffect(() => {
     loadAll()
@@ -496,6 +513,12 @@ export default function Settings() {
         setGeminiPreview(data.gemini.api_key_preview || '')
       }
 
+      // Load search config
+      try {
+        const sc = await api.getSearchConfig()
+        if (sc) setSearchConfig(prev => ({ ...prev, ...sc }))
+      } catch {}
+
     } catch {
       // silently fall back to defaults
     } finally {
@@ -512,6 +535,8 @@ export default function Settings() {
         ...profile,
         experience_years: parseInt(profile.experience_years, 10) || 0,
         notice_period_days: parseInt(profile.notice_period_days, 10) || 0,
+        current_salary: parseInt(profile.current_salary, 10) || 0,
+        desired_salary: parseInt(profile.desired_salary, 10) || 0,
       }
       await api.saveProfile(payload)
       toast({ title: 'Profile saved', description: 'Your profile information has been updated.', type: 'success' })
@@ -582,6 +607,26 @@ export default function Settings() {
   }
 
 
+  async function saveSearchConfig() {
+    setSearchSaving(true)
+    try {
+      await api.saveSearchConfig({
+        target_roles: searchConfig.target_roles,
+        domain_keywords: searchConfig.domain_keywords,
+        resume_skills: searchConfig.resume_skills,
+        active_regions: searchConfig.active_regions,
+        default_location: searchConfig.default_location,
+        max_jobs: parseInt(searchConfig.max_jobs, 10) || 25,
+        mode: searchConfig.mode,
+      })
+      toast({ title: 'Search config saved', description: 'Your search preferences have been updated.', type: 'success' })
+    } catch (e) {
+      toast({ title: 'Save failed', description: e.message, type: 'error' })
+    } finally {
+      setSearchSaving(false)
+    }
+  }
+
   // ── Field helpers ──
 
   function pf(key) {
@@ -599,7 +644,7 @@ export default function Settings() {
   }
 
 
-  const initials = profile.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() || 'VK'
+  const initials = profile.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() || '?'
 
   const SETTINGS_TABS = [
     { key: 'profile', label: 'Profile', icon: User },
@@ -654,7 +699,7 @@ export default function Settings() {
                   <div className="flex-1 grid grid-cols-2 gap-3">
                     <div>
                       <Label>Full Name</Label>
-                      <Input {...pf('name')} placeholder="Vineet Kukreti" />
+                      <Input {...pf('name')} placeholder="Your Name" />
                     </div>
                     <div>
                       <Label>Current Title</Label>
@@ -670,7 +715,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <Label>Phone</Label>
-                    <Input {...pf('phone')} placeholder="+91 XXXXX XXXXX" />
+                    <Input {...pf('phone')} placeholder="+1 000 000 0000" />
                   </div>
                   <div>
                     <Label>LinkedIn</Label>
@@ -684,15 +729,185 @@ export default function Settings() {
                     <Label>Location</Label>
                     <Input {...pf('location')} placeholder="City, Country" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label>Experience (yrs)</Label>
-                      <Input {...pf('experience_years')} placeholder="2" type="number" mono />
-                    </div>
-                    <div>
-                      <Label>Notice (days)</Label>
-                      <Input {...pf('notice_period_days')} placeholder="30" type="number" mono />
-                    </div>
+                  <div>
+                    <Label>Experience (yrs)</Label>
+                    <Input {...pf('experience_years')} placeholder="2" type="number" mono />
+                  </div>
+                  <div>
+                    <Label>Notice (days)</Label>
+                    <Input {...pf('notice_period_days')} placeholder="30" type="number" mono />
+                  </div>
+                  <div>
+                    <Label>Current Employer</Label>
+                    <Input {...pf('employer')} placeholder="Company Name" />
+                  </div>
+                  <div>
+                    <Label>Employer Domain</Label>
+                    <Input {...pf('employer_domain')} placeholder="company.com (blocked from outreach)" />
+                  </div>
+                  <div>
+                    <Label>Website</Label>
+                    <Input {...pf('website')} placeholder="https://yourwebsite.com" />
+                  </div>
+                  <div>
+                    <Label>Current Salary</Label>
+                    <Input {...pf('current_salary')} placeholder="0" type="number" mono />
+                  </div>
+                  <div>
+                    <Label>Desired Salary</Label>
+                    <Input {...pf('desired_salary')} placeholder="0" type="number" mono />
+                  </div>
+                </div>
+
+                {/* ── Education & Credentials ── */}
+                <div className="border-t border-border mt-5 mb-5" />
+                <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                  <div>
+                    <Label>Education</Label>
+                    <Input {...pf('education')} placeholder="B.S. Computer Science, University Name" />
+                  </div>
+                  <div>
+                    <Label>Education Level</Label>
+                    <select
+                      value={profile.education_level || "Bachelor's Degree"}
+                      onChange={e => setProfile(p => ({ ...p, education_level: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent"
+                    >
+                      <option>High School</option>
+                      <option>Associate's Degree</option>
+                      <option>Bachelor's Degree</option>
+                      <option>Master's Degree</option>
+                      <option>Doctorate (PhD)</option>
+                      <option>Professional Degree (MD, JD)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Certifications</Label>
+                    <Input {...pf('certifications')} placeholder="AWS Solutions Architect, etc." />
+                  </div>
+                </div>
+
+                {/* ── Visa & Relocation ── */}
+                <div className="border-t border-border mt-5 mb-5" />
+                <p className="text-[10px] text-fg-muted uppercase tracking-wider font-semibold mb-3">Visa & Relocation (used by auto-apply forms)</p>
+                <div className="grid grid-cols-3 gap-x-5 gap-y-4">
+                  <div>
+                    <Label>Require Visa Sponsorship</Label>
+                    <select value={profile.require_visa || 'No'} onChange={e => setProfile(p => ({ ...p, require_visa: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                      <option>No</option><option>Yes</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>US Work Authorization</Label>
+                    <select value={profile.us_citizenship || 'Not Applicable'} onChange={e => setProfile(p => ({ ...p, us_citizenship: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                      <option>US Citizen</option><option>Green Card</option><option>H-1B</option><option>OPT/CPT</option><option>Not Applicable</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Willing to Relocate</Label>
+                    <select value={profile.willing_to_relocate || 'Yes'} onChange={e => setProfile(p => ({ ...p, willing_to_relocate: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                      <option>Yes</option><option>No</option><option>Depends on location</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* ── EEO / Diversity (auto-apply forms) ── */}
+                <div className="border-t border-border mt-5 mb-5" />
+                <p className="text-[10px] text-fg-muted uppercase tracking-wider font-semibold mb-3">EEO / Diversity (optional — used by auto-apply forms)</p>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                  <div>
+                    <Label>Gender</Label>
+                    <select value={profile.gender || 'Decline to self-identify'} onChange={e => setProfile(p => ({ ...p, gender: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                      <option>Male</option><option>Female</option><option>Non-binary</option><option>Decline to self-identify</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Ethnicity</Label>
+                    <select value={profile.ethnicity || 'Decline to self-identify'} onChange={e => setProfile(p => ({ ...p, ethnicity: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                      <option>Asian</option><option>Black or African American</option><option>Hispanic or Latino</option><option>White</option><option>Two or More Races</option><option>Native American</option><option>Pacific Islander</option><option>Decline to self-identify</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Disability Status</Label>
+                    <select value={profile.disability_status || "I don't wish to answer"} onChange={e => setProfile(p => ({ ...p, disability_status: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                      <option>Yes, I have a disability</option><option>No, I do not have a disability</option><option>I don't wish to answer</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Veteran Status</Label>
+                    <select value={profile.veteran_status || 'I am not a protected veteran'} onChange={e => setProfile(p => ({ ...p, veteran_status: e.target.value }))}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                      <option>I am a protected veteran</option><option>I am not a protected veteran</option><option>Decline to self-identify</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* ── Skills, Projects, Achievements ── */}
+                <div className="border-t border-border mt-5 mb-5" />
+                <div className="space-y-4">
+                  <div>
+                    <Label>Skills Summary</Label>
+                    <textarea
+                      value={profile.skills_summary || ''}
+                      onChange={e => setProfile(p => ({ ...p, skills_summary: e.target.value }))}
+                      placeholder="Python, FastAPI, React, Docker, AWS — your core tech stack for email personalization"
+                      rows={2}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none focus:ring-1 focus:ring-accent resize-none"
+                    />
+                  </div>
+                  <div>
+                    <Label>Projects (used in cold email personalization)</Label>
+                    {(profile.projects || []).map((proj, i) => (
+                      <div key={i} className="flex gap-2 mb-2">
+                        <input
+                          value={proj.name || ''}
+                          onChange={e => {
+                            const updated = [...(profile.projects || [])];
+                            updated[i] = { ...updated[i], name: e.target.value };
+                            setProfile(p => ({ ...p, projects: updated }));
+                          }}
+                          placeholder="Project name"
+                          className="w-1/3 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none focus:ring-1 focus:ring-accent"
+                        />
+                        <input
+                          value={proj.description || ''}
+                          onChange={e => {
+                            const updated = [...(profile.projects || [])];
+                            updated[i] = { ...updated[i], description: e.target.value };
+                            setProfile(p => ({ ...p, projects: updated }));
+                          }}
+                          placeholder="Brief description with metrics"
+                          className="flex-1 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none focus:ring-1 focus:ring-accent"
+                        />
+                        <button
+                          onClick={() => {
+                            const updated = (profile.projects || []).filter((_, j) => j !== i);
+                            setProfile(p => ({ ...p, projects: updated }));
+                          }}
+                          className="px-2 py-1.5 text-fg-muted hover:text-danger transition-colors text-xs"
+                        >×</button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setProfile(p => ({ ...p, projects: [...(p.projects || []), { name: '', description: '' }] }))}
+                      className="text-xs text-accent hover:text-accent/80 transition-colors"
+                    >+ Add project</button>
+                  </div>
+                  <div>
+                    <Label>Achievements (one per line)</Label>
+                    <textarea
+                      value={(profile.achievements || []).join('\n')}
+                      onChange={e => setProfile(p => ({ ...p, achievements: e.target.value.split('\n').filter(l => l.trim()) }))}
+                      placeholder={"Published 2 papers at top conferences\nOpen source project with 500+ stars"}
+                      rows={3}
+                      className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none focus:ring-1 focus:ring-accent resize-none font-mono"
+                    />
                   </div>
                 </div>
               </Card>
@@ -786,7 +1001,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <Label>From Name</Label>
-                    <Input {...sf('from_name')} placeholder="Vineet Kukreti" />
+                    <Input {...sf('from_name')} placeholder="Your Name" />
                   </div>
                 </div>
                 <div className="mt-4 p-3 rounded-lg bg-bg-tertiary border border-border">
@@ -860,45 +1075,132 @@ export default function Settings() {
           {/* ── Tab 3: Search Config ── */}
           {activeTab === 'search' && (
             <div className="space-y-6">
-              <Card title="Search Configuration" icon={SlidersHorizontal}>
+              <Card title="Search Configuration" icon={SlidersHorizontal}
+                action={
+                  <button onClick={saveSearchConfig} disabled={searchSaving}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-accent hover:bg-accent/90 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60">
+                    {searchSaving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                    {searchSaving ? 'Saving...' : 'Save'}
+                  </button>
+                }
+              >
                 <div className="space-y-5">
+                  {/* Target Roles */}
                   <div>
                     <Label>Target Roles</Label>
                     <p className="text-fg-muted text-xs mb-2">Roles you're targeting — used for smart filtering & scoring</p>
-                    <div className="flex flex-wrap gap-2">
-                      {['AI Engineer', 'ML Engineer', 'GenAI Engineer', 'LLM Engineer', 'Agentic AI Engineer'].map(r => (
-                        <span key={r} className="px-3 py-1.5 bg-accent-bg text-accent text-xs font-medium rounded-lg border border-accent/20">{r}</span>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {searchConfig.target_roles.map(r => (
+                        <span key={r} className="inline-flex items-center gap-1 px-3 py-1.5 bg-accent-bg text-accent text-xs font-medium rounded-lg border border-accent/20">
+                          {r}
+                          <button onClick={() => setSearchConfig(s => ({ ...s, target_roles: s.target_roles.filter(x => x !== r) }))}
+                            className="text-accent/50 hover:text-danger ml-0.5">×</button>
+                        </span>
                       ))}
                     </div>
+                    <div className="flex gap-2">
+                      <input value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="Add role..."
+                        onKeyDown={e => { if (e.key === 'Enter' && newRole.trim()) { setSearchConfig(s => ({ ...s, target_roles: [...s.target_roles, newRole.trim()] })); setNewRole(''); } }}
+                        className="flex-1 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none focus:ring-1 focus:ring-accent" />
+                      <button onClick={() => { if (newRole.trim()) { setSearchConfig(s => ({ ...s, target_roles: [...s.target_roles, newRole.trim()] })); setNewRole(''); } }}
+                        className="px-3 py-1.5 text-xs text-accent hover:text-accent/80 border border-accent/20 rounded-lg">+ Add</button>
+                    </div>
                   </div>
+
                   <div className="border-t border-border" />
+
+                  {/* Domain Keywords */}
                   <div>
                     <Label>Domain Keywords</Label>
-                    <p className="text-fg-muted text-xs mb-2">Healthcare & domain-specific keywords for relevance scoring</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {['healthcare', 'clinical', 'medical', 'biotech', 'pharma', 'genomics', 'oncology', 'ehr', 'fhir', 'hipaa'].map(k => (
-                        <span key={k} className="px-2 py-1 bg-bg-tertiary text-fg-secondary text-xs rounded-md border border-border">{k}</span>
+                    <p className="text-fg-muted text-xs mb-2">Keywords for domain relevance scoring (e.g. healthcare, fintech)</p>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {searchConfig.domain_keywords.map(k => (
+                        <span key={k} className="inline-flex items-center gap-1 px-2 py-1 bg-bg-tertiary text-fg-secondary text-xs rounded-md border border-border">
+                          {k}
+                          <button onClick={() => setSearchConfig(s => ({ ...s, domain_keywords: s.domain_keywords.filter(x => x !== k) }))}
+                            className="text-fg-muted hover:text-danger">×</button>
+                        </span>
                       ))}
-                      <span className="px-2 py-1 text-fg-muted text-xs">+15 more</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={newKeyword} onChange={e => setNewKeyword(e.target.value)} placeholder="Add keyword..."
+                        onKeyDown={e => { if (e.key === 'Enter' && newKeyword.trim()) { setSearchConfig(s => ({ ...s, domain_keywords: [...s.domain_keywords, newKeyword.trim().toLowerCase()] })); setNewKeyword(''); } }}
+                        className="flex-1 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none focus:ring-1 focus:ring-accent" />
+                      <button onClick={() => { if (newKeyword.trim()) { setSearchConfig(s => ({ ...s, domain_keywords: [...s.domain_keywords, newKeyword.trim().toLowerCase()] })); setNewKeyword(''); } }}
+                        className="px-3 py-1.5 text-xs text-accent hover:text-accent/80 border border-accent/20 rounded-lg">+ Add</button>
                     </div>
                   </div>
+
                   <div className="border-t border-border" />
-                  <div className="grid grid-cols-2 gap-5">
-                    <div>
-                      <Label>Experience Range</Label>
-                      <p className="text-fg-muted text-xs">0–5 years (current: 2 yrs)</p>
+
+                  {/* Resume Skills (skill weights for scoring) */}
+                  <div>
+                    <Label>Resume Skills & Weights</Label>
+                    <p className="text-fg-muted text-xs mb-2">Your skills with priority weights (1–5) — used for job scoring & matching</p>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {Object.entries(searchConfig.resume_skills).map(([skill, weight]) => (
+                        <span key={skill} className="inline-flex items-center gap-1 px-2 py-1 bg-bg-tertiary text-fg-secondary text-xs rounded-md border border-border">
+                          {skill} <span className="text-accent font-mono">({weight})</span>
+                          <button onClick={() => setSearchConfig(s => { const rs = { ...s.resume_skills }; delete rs[skill]; return { ...s, resume_skills: rs }; })}
+                            className="text-fg-muted hover:text-danger">×</button>
+                        </span>
+                      ))}
                     </div>
-                    <div>
-                      <Label>Location Preferences</Label>
-                      <p className="text-fg-muted text-xs">India, Remote, Japan, Europe, UAE, US, Singapore</p>
+                    <div className="flex gap-2">
+                      <input value={newSkill} onChange={e => setNewSkill(e.target.value)} placeholder="Skill name..."
+                        onKeyDown={e => { if (e.key === 'Enter' && newSkill.trim()) { setSearchConfig(s => ({ ...s, resume_skills: { ...s.resume_skills, [newSkill.trim().toLowerCase()]: parseInt(newSkillWeight) || 3 } })); setNewSkill(''); } }}
+                        className="flex-1 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none focus:ring-1 focus:ring-accent" />
+                      <input value={newSkillWeight} onChange={e => setNewSkillWeight(e.target.value)} type="number" min="1" max="5" placeholder="Wt"
+                        className="w-16 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary text-center font-mono focus:outline-none focus:ring-1 focus:ring-accent" />
+                      <button onClick={() => { if (newSkill.trim()) { setSearchConfig(s => ({ ...s, resume_skills: { ...s.resume_skills, [newSkill.trim().toLowerCase()]: parseInt(newSkillWeight) || 3 } })); setNewSkill(''); } }}
+                        className="px-3 py-1.5 text-xs text-accent hover:text-accent/80 border border-accent/20 rounded-lg">+ Add</button>
                     </div>
                   </div>
-                </div>
-                <div className="mt-5 p-3 rounded-lg bg-bg-tertiary border border-border">
-                  <p className="text-fg-muted text-xs leading-relaxed flex items-start gap-2">
-                    <Info size={14} className="text-accent flex-shrink-0 mt-0.5" />
-                    These settings are configured in <span className="font-mono text-accent">backend/config.py</span>. Edit that file to update target roles, keywords, and search parameters.
-                  </p>
+
+                  <div className="border-t border-border" />
+
+                  {/* Active Regions */}
+                  <div>
+                    <Label>Active Regions</Label>
+                    <p className="text-fg-muted text-xs mb-2">Regions to include in job search queries</p>
+                    <div className="flex flex-wrap gap-2">
+                      {searchConfig.available_regions.map(r => {
+                        const active = searchConfig.active_regions.includes(r);
+                        return (
+                          <button key={r} onClick={() => setSearchConfig(s => ({
+                            ...s, active_regions: active ? s.active_regions.filter(x => x !== r) : [...s.active_regions, r]
+                          }))}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${active ? 'bg-accent-bg text-accent border-accent/30' : 'bg-bg-tertiary text-fg-muted border-border hover:text-fg-secondary'}`}>
+                            {r.charAt(0).toUpperCase() + r.slice(1)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border" />
+
+                  {/* Search Defaults */}
+                  <div className="grid grid-cols-3 gap-5">
+                    <div>
+                      <Label>Default Location</Label>
+                      <input value={searchConfig.default_location} onChange={e => setSearchConfig(s => ({ ...s, default_location: e.target.value }))}
+                        placeholder="India" className="w-full px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent" />
+                    </div>
+                    <div>
+                      <Label>Max Jobs per Run</Label>
+                      <input value={searchConfig.max_jobs} onChange={e => setSearchConfig(s => ({ ...s, max_jobs: e.target.value }))}
+                        type="number" className="w-full px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary font-mono focus:outline-none focus:ring-1 focus:ring-accent" />
+                    </div>
+                    <div>
+                      <Label>Apply Mode</Label>
+                      <select value={searchConfig.mode} onChange={e => setSearchConfig(s => ({ ...s, mode: e.target.value }))}
+                        className="w-full px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-sm text-fg-primary focus:outline-none focus:ring-1 focus:ring-accent">
+                        <option value="semi">Semi-auto (approve each)</option>
+                        <option value="auto">Full auto (apply all)</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </Card>
             </div>

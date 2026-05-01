@@ -296,10 +296,12 @@ def api_upload_variant(variant_name: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=404, detail=f"Unknown variant: {variant_name}")
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
-    # Always save as vineet_kukreti_resume.pdf — same name for all variants
-    dest = Path(f"assets/resumes/{variant_name}/vineet_kukreti_resume.pdf")
+    # Always save as resume.pdf — same name for all variants
+    dest = Path(f"assets/resumes/{variant_name}/resume.pdf")
     dest.parent.mkdir(parents=True, exist_ok=True)
     content = file.file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Max 10MB.")
     dest.write_bytes(content)
     return {
         "status": "ok",

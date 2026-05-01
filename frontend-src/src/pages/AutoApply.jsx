@@ -18,7 +18,7 @@ export default function AutoApply() {
       setStatus(statusRes)
       setQuota(quotaRes)
     } catch (e) {
-      console.error('Status fetch error:', e)
+      /* silent */
     }
   }
 
@@ -40,7 +40,7 @@ export default function AutoApply() {
       await api.startAutoApply({ max_applications: maxApps })
       setTimeout(fetchStatus, 1000)
     } catch (e) {
-      console.error('Start error:', e)
+      /* silent */
     }
     setLoading(false)
   }
@@ -51,7 +51,7 @@ export default function AutoApply() {
       await api.stopAutoApply()
       setTimeout(fetchStatus, 1000)
     } catch (e) {
-      console.error('Stop error:', e)
+      /* silent */
     }
     setLoading(false)
   }
@@ -63,7 +63,7 @@ export default function AutoApply() {
 
   const appliedToday = quotaData.applied || 0
   const targetToday = quotaData.target || 500
-  const progressPct = Math.min(100, Math.round((appliedToday / targetToday) * 100))
+  const progressPct = targetToday > 0 ? Math.min(100, Math.round((appliedToday / targetToday) * 100)) : 0
 
   const hasLog = status?.log && status.log.length > 0
 

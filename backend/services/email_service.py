@@ -36,7 +36,7 @@ SMTP_CONFIG = {
     "user": os.getenv("SMTP_USER", ""),
     "password": os.getenv("SMTP_PASSWORD", ""),
     "from_email": os.getenv("FROM_EMAIL", ""),
-    "from_name": os.getenv("FROM_NAME", "Vineet Kukreti"),
+    "from_name": os.getenv("FROM_NAME", ""),
 }
 
 # ───────────────────────────────────────────────
@@ -44,8 +44,9 @@ SMTP_CONFIG = {
 # ───────────────────────────────────────────────
 
 # Domains that must never receive outreach (exact domain match only)
+_employer_domain = PROFILE.get("employer_domain", "")
 BLOCKED_DOMAINS = {
-    "southguild.tech",    # current employer
+    *([_employer_domain] if _employer_domain else []),  # current employer (from profile)
     "lnkd.in",            # LinkedIn shortened URLs (not real emails)
     "hubs.li",            # HubSpot tracking URLs (not real emails)
     "oscarhealth.com",    # rejects external email
@@ -69,8 +70,9 @@ BLOCKED_DOMAINS = {
 }
 
 # Company keywords — matched against company name only (word boundary, not substring)
+_employer_name = PROFILE.get("employer", "").lower()
 BLOCKED_COMPANIES = [
-    "southguild",          # current employer
+    *([_employer_name] if _employer_name else []),  # current employer (from profile)
 ]
 
 # Keep legacy name for any external imports
@@ -279,7 +281,69 @@ def verify_email(email: str, company: str = "", skip_smtp: bool = False) -> dict
 # Email generation agent (Gemini 2.5 Flash Lite)
 # ───────────────────────────────────────────────
 
-EMAIL_AGENT_PROMPT = """You are an AI job outreach assistant specialized in generating highly personalized, human-like recruiter emails for AI/ML/Data roles.
+def _build_email_agent_prompt():
+    """Build the email agent prompt dynamically from PROFILE."""
+    first_name = PROFILE.get("first_name", "") or PROFILE.get("name", "").split()[0] if PROFILE.get("name") else "User"
+    name = PROFILE.get("name", first_name)
+    title = PROFILE.get("current_title", "Engineer")
+    exp_years = PROFILE.get("experience_years", 0)
+    location = PROFILE.get("location", "")
+    employer = PROFILE.get("employer", "")
+    linkedin = PROFILE.get("linkedin", "")
+    github = PROFILE.get("github", "")
+    skills_summary = PROFILE.get("skills_summary", ", ".join(list(RESUME_SKILLS.keys())[:15]))
+    education = PROFILE.get("education", "")
+
+    # Build profile section
+    profile_lines = [f"Name: {name}"]
+    title_line = f"Title: {title}"
+    if exp_years:
+        title_line += f" | {exp_years} years experience"
+    profile_lines.append(title_line)
+    if location:
+        profile_lines.append(f"Location: {location}")
+    if linkedin:
+        profile_lines.append(f"LinkedIn: {linkedin}")
+    if github:
+        profile_lines.append(f"GitHub: {github}")
+
+    # Current role
+    role_lines = []
+    if employer:
+        role_lines.append(f"- {title} at {employer}")
+    if skills_summary:
+        role_lines.append(f"\nStrong experience in:\n{skills_summary}")
+
+    # Projects
+    projects = PROFILE.get("projects", [])
+    project_section = ""
+    if projects:
+        project_section = "\nProjects (pick 2-3 that BEST match the target role):\n"
+        for i, proj in enumerate(projects, 1):
+            pname = proj.get("name", f"Project {i}")
+            pdesc = proj.get("description", "")
+            project_section += f"{i}. {pname}"
+            if pdesc:
+                project_section += f" — {pdesc}"
+            project_section += "\n"
+
+    # Achievements
+    achievements = PROFILE.get("achievements", [])
+    achievement_section = ""
+    if achievements:
+        achievement_section = "\nACHIEVEMENTS:\n"
+        for ach in achievements:
+            if ach:
+                achievement_section += f"- {ach}\n"
+    if education:
+        achievement_section += f"- {education}\n"
+
+    profile_block = "\n".join(profile_lines)
+    if role_lines:
+        profile_block += "\n\nCURRENT ROLE:\n" + "\n".join(role_lines)
+    profile_block += project_section + achievement_section
+
+    return f"""You are an AI job outreach assistant specialized in generating highly personalized, human-like recruiter emails.
 
 Your goal is to maximize recruiter response rate.
 
@@ -287,34 +351,7 @@ You will receive structured data about a hiring post. Some fields may be missing
 
 ━━━ CANDIDATE PROFILE (IMPORTANT CONTEXT) ━━━
 
-Name: Vineet Kukreti
-Title: AI Engineer | 2 years experience
-Location: India (Coimbatore)
-LinkedIn: linkedin.com/in/vineetkukreti
-GitHub: github.com/vineetkukreti
-
-CURRENT ROLE:
-- AI Engineer at Southguild Technologies (May 2024 – Present)
-- Building production-grade healthcare AI platforms across dermatopathology and oncology
-- Supporting real-world clinical and biomedical research workflows
-
-Strong experience in:
-- Knowledge Graphs (Neo4j) & NLP-to-Cypher pipelines
-- LLM-driven systems (Cohere, Claude, OpenAI)
-- ETL pipelines for biomedical data
-- FastAPI microservices & Docker deployment
-- Healthcare AI (dermatopathology, oncology)
-
-Projects (pick 2-3 that BEST match the target role):
-1. PathAssist: Dermatopathology Retrieval System — End-to-end clinician-validated retrieval system using Neo4j knowledge graphs. NLP-to-Cypher pipeline achieving 98.8% accuracy (88/89), 5x faster clinical insight retrieval, 60% reduction in clinician research time. Validated by clinicians, presented at medical conference.
-2. Target Discovery ETL Pipeline — Unified ETL pipeline integrating heterogeneous biomedical databases for gastric cancer drug-target discovery. Modeled gene-protein-pathway-mutation interactions. Graph analytics over 100K+ records, 65% improvement in biomedical data accessibility.
-3. Navya Medical AI Pipeline — LLM-assisted oncology data pipeline for automated patient data extraction and classification. Reduced manual processing by 80%, improved data consistency across clinical datasets.
-
-ACHIEVEMENTS:
-- 3 patents in AI/ML applications
-- 2 research papers published at IEEE International Conferences
-- PMSS Scholarship (Prime Minister's Scholarship Scheme)
-- B.Tech (Hons.) in CS Engineering, 8.5 CGPA, ML & AI specialization
+{profile_block}
 
 ━━━ CRITICAL INSTRUCTIONS ━━━
 
@@ -342,20 +379,20 @@ BEFORE writing the email, you MUST:
 9. Do NOT list everything — pick 2-3 strongest alignments
 10. Mention resume naturally ("I've attached my resume for context") — don't describe the attachment
 11. NO PLACEHOLDERS: Never use [brackets] or placeholder text. If data is missing, skip it or write around it naturally.
-12. Sign off with just "Best,\\nVineet" — not "Best regards, Vineet Kukreti"
+12. Sign off with just "Best,\\n{first_name}" — not "Best regards, {name}"
 
 ━━━ EMAIL STRUCTURE ━━━
 
-1. Opening hook + identity — reference something SPECIFIC from their post AND naturally identify yourself in the same 1-2 sentences. Example: "I'm an AI Engineer currently building healthcare automation systems for the US medical space — your post about the Clinical AI role at Duml Tech maps closely to what I've been working on." Do NOT use a formal intro like "My name is Vineet Kukreti and I am..." — weave who you are into the hook naturally.
-2. Context match — 2-3 lines showing what YOU built that solves THEIR specific problem. Use concrete numbers/details (e.g., "processing 50K records/day" not "large-scale systems"). Connect YOUR work to THEIR needs with a clear "you need X → I built X" mapping.
-3. Specific value — pick 1 specific problem from their post (e.g., "you mentioned scaling clinical NLP pipelines" or "the part about handling unstructured medical records") and show you've solved it before. Emphasize end-to-end system thinking, not just modeling.
+1. Opening hook + identity — reference something SPECIFIC from their post AND naturally identify yourself in the same 1-2 sentences. Do NOT use a formal intro like "My name is ... and I am..." — weave who you are into the hook naturally.
+2. Context match — 2-3 lines showing what YOU built that solves THEIR specific problem. Use concrete numbers/details. Connect YOUR work to THEIR needs with a clear "you need X → I built X" mapping.
+3. Specific value — pick 1 specific problem from their post and show you've solved it before. Emphasize end-to-end system thinking, not just modeling.
 4. Close — polite + confident, one clear low-friction ask. Mention resume attached.
-5. Sign off — "Best,\\nVineet"
+5. Sign off — "Best,\\n{first_name}"
 
 ━━━ ADAPTATION RULES ━━━
 
 IF is_hiring=true AND role+company known:
-  → Direct application. Reference the specific role. Match 2 projects to their requirements.
+  → Direct application. Reference the specific role. Match relevant projects to their requirements.
 
 IF is_hiring=true BUT role/company vague:
   → Infer the role from post content. Be specific about what you'd bring.
@@ -363,22 +400,13 @@ IF is_hiring=true BUT role/company vague:
 IF is_hiring=false OR weak signal:
   → Value-first outreach. Lead with curiosity about their work/domain. Position as "interested in what you're building" not "give me a job".
 
-IF healthcare/medical domain:
-  → Lead with Healthcare AI Pipeline + Biomedical ETL projects. Mention clinical data experience.
-
-IF general AI/ML role:
-  → Lead with Enterprise RAG + LLM experience. Mention production-scale systems.
-
-IF data engineering role:
-  → Lead with Biomedical ETL + Excel Automation. Mention pipeline scale + automation.
-
 ━━━ OUTPUT FORMAT (EXACT) ━━━
 
 Return ONLY this, nothing else:
 
 Subject: <clear, role-focused subject line>
 
-<email body starting directly with "Hi {author_first_name}," then the hook — no "Email:" label>
+<email body starting directly with "Hi {{author_first_name}}," then the hook — no "Email:" label>
 
 ━━━ STYLE EXAMPLES ━━━
 
@@ -396,8 +424,10 @@ BAD opening (NEVER do this):
 - Missing company → skip or generalize naturally
 - Missing role → infer from keywords in post content
 - No hiring signal → make it curiosity + value outreach
-- Weak content → focus on domain relevance
-"""
+- Weak content → focus on domain relevance"""
+
+
+EMAIL_AGENT_PROMPT = _build_email_agent_prompt()
 
 
 def _build_email_input(post_data: dict) -> str:
@@ -536,7 +566,7 @@ def _parse_generated_email(text: str, post_data: dict) -> dict:
         "[Author Name]": first_name,
         "[Author name]": first_name,
         "[author name]": first_name,
-        "[Your Name]": "Vineet",
+        "[Your Name]": PROFILE.get("first_name", "") or PROFILE.get("name", "").split()[0] if PROFILE.get("name") else "",
         "[Name]": first_name,
         "[Company]": company or "your team",
         "[Role]": role or "the role",
@@ -553,9 +583,11 @@ def _parse_generated_email(text: str, post_data: dict) -> dict:
 
     # Strip trailing signature duplicates
     body = body.rstrip()
-    if body.endswith("Vineet Kukreti"):
-        body = body[:-len("Vineet Kukreti")].rstrip().rstrip(",").rstrip()
-        body += "\nVineet"
+    full_name = PROFILE.get("name", "")
+    first_name_p = PROFILE.get("first_name", "") or (full_name.split()[0] if full_name else "")
+    if full_name and body.endswith(full_name):
+        body = body[:-len(full_name)].rstrip().rstrip(",").rstrip()
+        body += f"\n{first_name_p}"
 
     return {"subject": subject, "body": body}
 
@@ -1300,7 +1332,7 @@ Body: [email body]
     # Fallback
     return {
         "subject": f"Re: {original_subject}",
-        "body": f"Hi,\n\nFollowing up on my previous email about the {role} position at {company}. I'd love to discuss how my experience aligns with what you're building.\n\nBest,\nVineet"
+        "body": f"Hi,\n\nFollowing up on my previous email about the {role} position at {company}. I'd love to discuss how my experience aligns with what you're building.\n\nBest,\n{PROFILE.get('first_name', '') or PROFILE.get('name', '').split()[0] if PROFILE.get('name') else ''}"
     }
 
 
@@ -1401,43 +1433,90 @@ def preview_followup(outreach_id):
 
 def _classify_reply(body: str, subject: str = "") -> str:
     """Classify a reply as: interested, auto_reply, rejection, or info."""
-    body_lower = (body or "").lower()
-    subject_lower = (subject or "").lower()
+    text = ((body or "") + " " + (subject or "")).lower()
 
-    # Auto-reply patterns
+    # Auto-reply patterns (check first — these aren't human replies)
     auto_patterns = [
         "we have received your", "ticket has been created", "request received",
         "auto-reply", "automatic reply", "out of office", "ooo",
-        "this is an automated", "do not reply", "no-reply",
+        "this is an automated", "do not reply", "no-reply", "noreply",
         "your request", "has been received", "currently experiencing",
         "visit our career site", "apply on our website", "apply online",
+        "this mailbox is not monitored", "unsubscribe", "click here to apply",
+        "auto response", "autoresponse",
     ]
-    if any(p in body_lower for p in auto_patterns):
+    if any(p in text for p in auto_patterns):
         return "auto_reply"
 
-    # Rejection patterns
+    # Rejection patterns — comprehensive list for job outreach
     reject_patterns = [
-        "not hiring", "position has been filled", "no longer available",
-        "looking for more experience", "looking for 3", "looking for 4", "looking for 5",
-        "we are looking for", "unfortunately", "not a good fit",
-        "not suitable", "overqualified", "underqualified",
-        "onsite only", "onsite role", "full time onsite",
-        "not the right match", "moved forward with other",
+        # Direct rejections
+        "not hiring", "not currently hiring", "no open positions",
+        "position has been filled", "role has been filled", "already filled",
+        "no longer available", "no longer open",
+        "not a good fit", "not the right fit", "not a match", "not the right match",
+        "not suitable", "not aligned",
+        # "Unfortunately" phrases
+        "unfortunately", "regret to inform", "regret that",
+        # Moving forward with others
+        "moved forward with other", "moving forward with other",
+        "decided to go with", "decided to move forward with",
+        "chosen to proceed with", "selected another",
+        "not moving forward", "won't be moving forward", "will not be moving forward",
+        "not proceeding", "won't be proceeding", "will not be proceeding",
+        "not able to move forward", "unable to move forward",
+        "decided not to proceed", "decided not to move",
+        "not be able to", "cannot proceed",
+        # Experience mismatch
+        "looking for more experience", "require more experience",
+        "looking for 3", "looking for 4", "looking for 5",
+        "looking for 6", "looking for 7", "looking for 8",
+        "minimum of 5 year", "minimum of 3 year",
+        "years of experience required",
+        "overqualified", "underqualified", "under qualified", "over qualified",
+        # Location mismatch
+        "onsite only", "onsite role", "full time onsite", "in-office only",
+        "no remote", "no visa", "no sponsorship", "visa sponsorship",
+        "relocation required", "must be based in", "must be located",
+        # Budget/timing
+        "budget constraints", "hiring freeze", "on hold",
+        "paused the search", "put on hold",
+        # Polite declines
+        "keep your resume on file", "keep your cv on file",
+        "reach out if something", "future opportunities",
+        "best of luck", "wish you the best", "good luck in your search",
+        "all the best in your", "wishing you success",
+        # Skill mismatch
+        "we are looking for", "require someone with",
+        "different skill set", "specific requirements",
+        "not what we're looking for",
+        # Generic decline phrases
+        "thank you for your interest but",
+        "appreciate your interest but",
+        "appreciate you reaching out but",
+        "thanks for reaching out but",
+        "at this time we",
+        "at this point we",
+        "not in a position to",
     ]
-    if any(p in body_lower for p in reject_patterns):
+    if any(p in text for p in reject_patterns):
         return "rejection"
 
     # Interest patterns
     interest_patterns = [
         "interested", "relevant", "your background", "your experience",
         "would like to", "let's connect", "let's schedule", "let's chat",
-        "send your cv", "send cv", "share your resume",
-        "open to work", "available", "join", "round",
-        "interview", "call", "discussion", "meet",
+        "send your cv", "send cv", "share your resume", "send your resume",
+        "open to work", "join", "round",
+        "interview", "phone screen", "technical assessment",
+        "call", "discussion", "meet",
         "keep you posted", "will reach out", "get back to you",
-        "impressive", "great fit", "perfect fit",
+        "impressive", "great fit", "perfect fit", "strong candidate",
+        "like to learn more", "tell me more",
+        "schedule a time", "book a call", "set up a call",
+        "exciting", "love to chat", "would love to",
     ]
-    if any(p in body_lower for p in interest_patterns):
+    if any(p in text for p in interest_patterns):
         return "interested"
 
     return "info"
@@ -1481,9 +1560,74 @@ def _decode_header_value(value):
     return " ".join(parts)
 
 
-def _imap_check_replies():
-    """Connect to IMAP, search for replies to sent outreach emails."""
+def _extract_email_body(msg):
+    """Extract plain-text body from an email message."""
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            ct = part.get_content_type()
+            if ct == "text/plain":
+                payload = part.get_payload(decode=True)
+                if payload:
+                    body = payload.decode("utf-8", errors="replace")
+                break
+            elif ct == "text/html" and not body:
+                payload = part.get_payload(decode=True)
+                if payload:
+                    # Strip HTML tags for a rough preview
+                    raw = payload.decode("utf-8", errors="replace")
+                    body = re.sub(r'<[^>]+>', ' ', raw)
+                    body = re.sub(r'\s+', ' ', body).strip()
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            if msg.get_content_type() == "text/html":
+                raw = payload.decode("utf-8", errors="replace")
+                body = re.sub(r'<[^>]+>', ' ', raw)
+                body = re.sub(r'\s+', ' ', body).strip()
+            else:
+                body = payload.decode("utf-8", errors="replace")
+    return body
+
+
+def _is_reply_after_sent(date_str, sent_at):
+    """Check if an email date is after our sent_at timestamp. Returns True if after or if we can't determine."""
+    try:
+        from email.utils import parsedate_to_datetime
+        reply_dt = parsedate_to_datetime(date_str)
+        # Normalize to naive UTC for comparison
+        if reply_dt.tzinfo is not None:
+            import datetime as _dt
+            reply_naive = reply_dt.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+        else:
+            reply_naive = reply_dt
+        # Parse sent_at (stored as ISO format in DB, naive UTC)
+        sent_naive = datetime.fromisoformat(sent_at.replace("Z", "+00:00").replace("+00:00", "")) if sent_at else None
+        if sent_naive and reply_naive < sent_naive:
+            return False  # Reply is before we sent
+    except Exception:
+        pass
+    return True  # Default: assume it's valid
+
+
+def _imap_check_replies(since_date=None, limit=500, folders=None):
+    """Connect to IMAP, search for replies to sent outreach emails.
+
+    Args:
+        since_date: Only search for emails received after this date (YYYY-MM-DD string).
+                    Defaults to 14 days ago.
+        limit: Max number of unreplied outreach emails to check (default 500).
+        folders: List of IMAP folders to search. Defaults to INBOX + [Gmail]/All Mail.
+    """
     conn = init_db()
+
+    # Clean up stuck runs first (running for > 10 minutes = stuck)
+    conn.execute(
+        "UPDATE worker_runs SET finished_at=datetime('now'), status='failed' "
+        "WHERE worker_type='imap_check' AND status='running' AND started_at < datetime('now', '-10 minutes')"
+    )
+    conn.commit()
+
     run_id = conn.execute(
         "INSERT INTO worker_runs (worker_type) VALUES (?)",
         ("imap_check",)
@@ -1495,19 +1639,29 @@ def _imap_check_replies():
         "SELECT eo.id, eo.recipient_email, eo.subject, eo.sent_at "
         "FROM email_outreach eo "
         "WHERE eo.status = 'sent' AND eo.reply_detected_at IS NULL "
-        "ORDER BY eo.sent_at DESC LIMIT 200"
+        "AND eo.sent_at IS NOT NULL "
+        "ORDER BY eo.sent_at DESC LIMIT ?",
+        (limit,)
     ).fetchall()
 
     if not sent:
+        conn.execute(
+            "UPDATE worker_runs SET finished_at=datetime('now'), status='completed', succeeded=0, total=0, results=? WHERE id=?",
+            ('{"replies_found": 0, "total_checked": 0, "note": "no unreplied emails"}', run_id)
+        )
+        conn.commit()
         conn.close()
         return 0
 
     # Build lookup: email -> list of outreach records
     email_lookup = {}
+    earliest_sent = None
     for row in sent:
         addr = (row["recipient_email"] or "").lower().strip()
         if addr:
             email_lookup.setdefault(addr, []).append(row)
+            if row["sent_at"] and (earliest_sent is None or row["sent_at"] < earliest_sent):
+                earliest_sent = row["sent_at"]
 
     if not email_lookup:
         conn.close()
@@ -1519,118 +1673,154 @@ def _imap_check_replies():
     if not imap_user or not imap_pass:
         raise ValueError("IMAP credentials not configured (SMTP_USER/SMTP_PASSWORD)")
 
+    # Compute SINCE date for IMAP search (dramatically speeds up Gmail searches)
+    if since_date:
+        imap_since = since_date
+    elif earliest_sent:
+        # Use 1 day before earliest unreplied email
+        try:
+            dt = datetime.fromisoformat(earliest_sent[:10])
+            dt = dt - timedelta(days=1)
+            imap_since = dt.strftime("%d-%b-%Y")  # IMAP date format: 01-Mar-2026
+        except Exception:
+            dt = datetime.now() - timedelta(days=30)
+            imap_since = dt.strftime("%d-%b-%Y")
+    else:
+        dt = datetime.now() - timedelta(days=14)
+        imap_since = dt.strftime("%d-%b-%Y")
+
+    # Folders to search — INBOX first, then All Mail for anything we missed
+    if folders is None:
+        folders = ["INBOX", "[Gmail]/All Mail"]
+
     # Connect to IMAP
     mail = imaplib.IMAP4_SSL(IMAP_CONFIG["host"], IMAP_CONFIG["port"], timeout=30)
     mail.login(imap_user, imap_pass)
-    mail.select("INBOX", readonly=True)
 
     replies_found = 0
     total_checked = 0
+    already_matched = set()  # Track outreach IDs already matched to avoid duplicates
 
     try:
-        # Search for emails FROM any of our outreach recipients
-        for recipient_email, outreach_rows in email_lookup.items():
+        for folder in folders:
             try:
-                # Search for emails from this sender
-                status, data = mail.search(None, f'(FROM "{recipient_email}")')
-                if status != "OK" or not data[0]:
+                status, _ = mail.select(folder, readonly=True)
+                if status != "OK":
                     continue
-
-                msg_ids = data[0].split()
-                # Check most recent messages first
-                for msg_id in reversed(msg_ids[-10:]):  # last 10 from this sender
-                    total_checked += 1
-                    try:
-                        status, msg_data = mail.fetch(msg_id, "(RFC822)")
-                        if status != "OK" or not msg_data or not msg_data[0]:
-                            continue
-
-                        raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
-                        if not isinstance(raw, bytes):
-                            continue
-                        msg = email_lib.message_from_bytes(raw)
-
-                        from_addr = _decode_header_value(msg.get("From", "")).lower()
-                        subject = _decode_header_value(msg.get("Subject", ""))
-                        date_str = msg.get("Date", "")
-
-                        # Extract body preview
-                        body_preview = ""
-                        if msg.is_multipart():
-                            for part in msg.walk():
-                                if part.get_content_type() == "text/plain":
-                                    payload = part.get_payload(decode=True)
-                                    if payload:
-                                        body_preview = payload.decode("utf-8", errors="replace")[:300]
-                                    break
-                        else:
-                            payload = msg.get_payload(decode=True)
-                            if payload:
-                                body_preview = payload.decode("utf-8", errors="replace")[:300]
-
-                        # Match to outreach records
-                        for outreach in outreach_rows:
-                            outreach_subject = outreach["subject"] or ""
-                            # Match by: reply subject contains original subject, or from matches
-                            is_reply = (
-                                outreach_subject.lower() in subject.lower()
-                                or f"re: {outreach_subject.lower()}" in subject.lower()
-                                or subject.lower() in f"re: {outreach_subject.lower()}"
-                            )
-
-                            if is_reply or recipient_email in from_addr:
-                                # Check if this reply is after the sent date
-                                try:
-                                    from email.utils import parsedate_to_datetime
-                                    reply_dt = parsedate_to_datetime(date_str)
-                                    sent_at = outreach["sent_at"]
-                                    if sent_at and reply_dt.isoformat() < sent_at:
-                                        continue  # Reply is before we sent — not a response
-                                except Exception:
-                                    pass
-
-                                # Classify reply type
-                                reply_type = _classify_reply(body_preview, subject)
-
-                                # Record the reply
-                                conn.execute(
-                                    "UPDATE email_outreach SET reply_detected_at = datetime('now'), "
-                                    "reply_preview = ?, status = 'replied', reply_type = ? WHERE id = ? AND reply_detected_at IS NULL",
-                                    (body_preview[:300], reply_type, outreach["id"])
-                                )
-
-                                # Update pipeline stage
-                                lead = conn.execute(
-                                    "SELECT id, stage FROM pipeline_leads WHERE outreach_id = ?",
-                                    (outreach["id"],)
-                                ).fetchone()
-
-                                if lead and lead["stage"] == "applied" and reply_type != "auto_reply":
-                                    conn.execute(
-                                        "UPDATE pipeline_leads SET stage = 'replied', updated_at = datetime('now') WHERE id = ?",
-                                        (lead["id"],)
-                                    )
-                                    conn.execute(
-                                        "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
-                                        "VALUES (?, 'email_reply', ?, ?)",
-                                        (lead["id"],
-                                         f"Reply Detected ({reply_type})",
-                                         f"[{reply_type.upper()}] {body_preview[:150]}")
-                                    )
-
-                                conn.commit()
-                                replies_found += 1
-                                break  # Found reply for this outreach, move on
-
-                    except Exception:
-                        continue
-
             except Exception:
                 continue
 
+            # Search for emails FROM any of our outreach recipients
+            for recipient_email, outreach_rows in email_lookup.items():
+                # Skip if all outreach for this recipient already matched
+                if all(o["id"] in already_matched for o in outreach_rows):
+                    continue
+
+                try:
+                    # Search with SINCE filter for speed
+                    safe_email = recipient_email.replace('"', '\\"')
+                    status, data = mail.search(None, f'(FROM "{safe_email}" SINCE {imap_since})')
+                    if status != "OK" or not data[0]:
+                        continue
+
+                    msg_ids = data[0].split()
+                    # Check most recent messages first (last 5 per sender is enough)
+                    for msg_id in reversed(msg_ids[-5:]):
+                        total_checked += 1
+                        try:
+                            status, msg_data = mail.fetch(msg_id, "(RFC822)")
+                            if status != "OK" or not msg_data or not msg_data[0]:
+                                continue
+
+                            raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
+                            if not isinstance(raw, bytes):
+                                continue
+                            msg = email_lib.message_from_bytes(raw)
+
+                            from_addr = _decode_header_value(msg.get("From", "")).lower()
+                            subject = _decode_header_value(msg.get("Subject", ""))
+                            date_str = msg.get("Date", "")
+
+                            # Extract body preview
+                            body_full = _extract_email_body(msg)
+                            body_preview = body_full[:500]
+
+                            # Match to outreach records
+                            for outreach in outreach_rows:
+                                if outreach["id"] in already_matched:
+                                    continue
+
+                                outreach_subject = outreach["subject"] or ""
+
+                                # Subject matching — relaxed to catch more replies
+                                subj_lower = subject.lower().strip()
+                                orig_lower = outreach_subject.lower().strip()
+                                is_subject_match = (
+                                    orig_lower and orig_lower in subj_lower  # original subject in reply
+                                    or subj_lower.startswith("re:")  # any Re: from this sender
+                                    or subj_lower.startswith("fw:")
+                                    or subj_lower.startswith("fwd:")
+                                )
+
+                                # From address match (catches replies with changed subjects)
+                                is_from_match = recipient_email in from_addr
+
+                                if is_subject_match or is_from_match:
+                                    # Verify reply came after we sent
+                                    if not _is_reply_after_sent(date_str, outreach["sent_at"]):
+                                        continue
+
+                                    # Classify reply type
+                                    reply_type = _classify_reply(body_preview, subject)
+
+                                    # Record the reply
+                                    conn.execute(
+                                        "UPDATE email_outreach SET reply_detected_at = datetime('now'), "
+                                        "reply_preview = ?, status = 'replied', reply_type = ? WHERE id = ? AND reply_detected_at IS NULL",
+                                        (body_preview[:300], reply_type, outreach["id"])
+                                    )
+
+                                    # Update pipeline stage
+                                    lead = conn.execute(
+                                        "SELECT id, stage FROM pipeline_leads WHERE outreach_id = ?",
+                                        (outreach["id"],)
+                                    ).fetchone()
+
+                                    if lead and lead["stage"] in ("applied", "outreach") and reply_type != "auto_reply":
+                                        new_stage = "rejected" if reply_type == "rejection" else "replied"
+                                        conn.execute(
+                                            "UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
+                                            (new_stage, lead["id"])
+                                        )
+                                        conn.execute(
+                                            "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                                            "VALUES (?, 'email_reply', ?, ?)",
+                                            (lead["id"],
+                                             f"Reply Detected ({reply_type})",
+                                             f"[{reply_type.upper()}] {body_preview[:150]}")
+                                        )
+
+                                    conn.commit()
+                                    replies_found += 1
+                                    already_matched.add(outreach["id"])
+                                    break  # Found reply for this outreach, move on
+
+                        except Exception:
+                            continue
+
+                except Exception:
+                    continue
+
         # ── Bounce Detection ──
         # Search for mailer-daemon / delivery failure notifications
-        for search_query in ['FROM "mailer-daemon"', 'SUBJECT "Address not found"', 'SUBJECT "Delivery Status Notification"', 'SUBJECT "Undeliverable"']:
+        mail.select("INBOX", readonly=True)
+        for search_query in [
+            f'FROM "mailer-daemon" SINCE {imap_since}',
+            f'SUBJECT "Address not found" SINCE {imap_since}',
+            f'SUBJECT "Delivery Status Notification" SINCE {imap_since}',
+            f'SUBJECT "Undeliverable" SINCE {imap_since}',
+            f'SUBJECT "Mail delivery failed" SINCE {imap_since}',
+        ]:
             try:
                 status, data = mail.search(None, f'({search_query})')
                 if status != "OK" or not data[0]:
@@ -1646,18 +1836,7 @@ def _imap_check_replies():
                         msg = email_lib.message_from_bytes(raw)
 
                         # Extract body to find failed address
-                        body = ""
-                        if msg.is_multipart():
-                            for part in msg.walk():
-                                if part.get_content_type() == "text/plain":
-                                    payload = part.get_payload(decode=True)
-                                    if payload:
-                                        body = payload.decode("utf-8", errors="replace")
-                                    break
-                        else:
-                            payload = msg.get_payload(decode=True)
-                            if payload:
-                                body = payload.decode("utf-8", errors="replace")
+                        body = _extract_email_body(msg)
 
                         # Find email addresses in the bounce body
                         bounced_emails = re.findall(r'[\w.+-]+@[\w.-]+\.\w{2,}', body)
@@ -1677,8 +1856,7 @@ def _imap_check_replies():
                                     (f"Address not found: {bounced_addr}", outreach["id"])
                                 )
                                 conn.commit()
-                                replies_found += 1  # count bounces in the detection total
-                                # Invalidate bounce cache so new bounces block future sends immediately
+                                replies_found += 1
                                 with _bounce_cache_lock:
                                     _bounced_domains_cache["loaded_at"] = 0
                     except Exception:
@@ -1700,7 +1878,9 @@ def _imap_check_replies():
 
     conn.execute(
         "UPDATE worker_runs SET finished_at=datetime('now'), status=?, succeeded=?, failed=0, total=?, results=? WHERE id=?",
-        ("completed", replies_found, total_checked, json.dumps({"replies_found": replies_found, "total_checked": total_checked}), run_id)
+        ("completed", replies_found, total_checked,
+         json.dumps({"replies_found": replies_found, "total_checked": total_checked, "recipients_scanned": len(email_lookup), "since": imap_since}),
+         run_id)
     )
     conn.commit()
     conn.close()
@@ -1762,6 +1942,69 @@ def check_replies_once():
         return {"status": "ok", "replies_found": found, "last_checked": imap_worker_state.get("last_checked")}
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+def deep_scan_replies(since_date=None):
+    """Run a deep backfill scan for ALL unreplied emails.
+
+    Searches from since_date (default: 01-Mar-2026) with no limit on emails checked.
+    Use this to catch all missed replies from historical outreach.
+    """
+    if since_date is None:
+        since_date = "01-Mar-2026"
+    try:
+        found = _imap_check_replies(
+            since_date=since_date,
+            limit=2000,  # Check all unreplied emails
+            folders=["INBOX", "[Gmail]/All Mail", "[Gmail]/Important", "[Gmail]/Spam"],
+        )
+        return {
+            "status": "ok",
+            "replies_found": found,
+            "last_checked": imap_worker_state.get("last_checked"),
+            "scan_type": "deep_backfill",
+            "since": since_date,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def reclassify_replies():
+    """Re-run classification on all existing replies with updated keywords.
+
+    Useful after adding new rejection/interest patterns.
+    Returns count of replies whose type changed.
+    """
+    conn = init_db()
+    replied = conn.execute(
+        "SELECT id, reply_preview, subject FROM email_outreach WHERE status = 'replied' AND reply_preview IS NOT NULL"
+    ).fetchall()
+
+    changed = 0
+    for row in replied:
+        old_type = conn.execute("SELECT reply_type FROM email_outreach WHERE id = ?", (row["id"],)).fetchone()
+        old_type = old_type["reply_type"] if old_type else None
+        new_type = _classify_reply(row["reply_preview"], row["subject"])
+        if new_type != old_type:
+            conn.execute(
+                "UPDATE email_outreach SET reply_type = ? WHERE id = ?",
+                (new_type, row["id"])
+            )
+            # Update pipeline stage if rejection was missed
+            if new_type == "rejection":
+                lead = conn.execute(
+                    "SELECT id, stage FROM pipeline_leads WHERE outreach_id = ?", (row["id"],)
+                ).fetchone()
+                if lead and lead["stage"] in ("applied", "replied", "outreach"):
+                    conn.execute(
+                        "UPDATE pipeline_leads SET stage = 'rejected', updated_at = datetime('now') WHERE id = ?",
+                        (lead["id"],)
+                    )
+            changed += 1
+
+    conn.commit()
+    conn.close()
+    return {"status": "ok", "total_replied": len(replied), "reclassified": changed}
 
 
 def get_imap_status():

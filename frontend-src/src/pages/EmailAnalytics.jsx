@@ -426,9 +426,9 @@ function AddressQualityCard() {
       </div>
       {((data.generic?.length > 0) || (data.bounced?.length > 0) || (data.multi_address?.length > 0)) && (
         <div className="mt-3 max-h-32 overflow-y-auto">
-          {[...(data.generic || []).map(e => ({ email: e, reason: 'Generic address' })),
-            ...(data.bounced || []).map(e => ({ email: e, reason: 'Bounced' })),
-            ...(data.multi_address || []).map(e => ({ email: e, reason: 'Multi-address' }))
+          {[...(data.generic || []).map(e => ({ email: typeof e === 'string' ? e : e.email, reason: 'Generic address' })),
+            ...(data.bounced || []).map(e => ({ email: typeof e === 'string' ? e : e.email, reason: 'Bounced' })),
+            ...(data.multi_address || []).map(e => ({ email: typeof e === 'string' ? e : e.email, reason: 'Multi-address' }))
           ].slice(0, 10).map((issue, i) => (
             <div key={i} className="flex items-center gap-2 py-1 text-xs">
               <AlertCircle size={11} className="text-warning shrink-0" />
@@ -451,6 +451,7 @@ export default function EmailAnalytics() {
   const [activeTab, setActiveTab] = useState("analytics");
   const [imapStatus, setImapStatus] = useState(null);
   const [checking, setChecking] = useState(false);
+  const [viewEmail, setViewEmail] = useState(null);
 
   useEffect(() => {
     load();
@@ -646,18 +647,29 @@ export default function EmailAnalytics() {
                 <div className="px-4 py-12 text-center text-fg-muted text-sm">No emails sent yet.</div>
               ) : (
                 history.filter((h) => h.status === "sent").map((item, idx) => (
-                  <div key={item.id || idx} className="flex items-center px-4 py-2.5 border-b border-border last:border-0 hover:bg-bg-tertiary/40 transition-colors text-xs">
-                    <span className="w-40 text-fg-primary font-medium truncate">{item.to_name || item.to_email}</span>
-                    <span className="flex-1 text-fg-secondary truncate px-2">{item.subject}</span>
-                    <span className="w-24 text-center">
-                      <StatusBadge status="sent" />
-                    </span>
-                    <span className="w-20 text-center text-fg-muted">
-                      {item.sent_at ? new Date(item.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                    </span>
-                    <span className="w-16 text-center">
-                      <button className="text-accent hover:underline text-xs">View</button>
-                    </span>
+                  <div key={item.id || idx}>
+                    <div className="flex items-center px-4 py-2.5 border-b border-border last:border-0 hover:bg-bg-tertiary/40 transition-colors text-xs">
+                      <span className="w-40 text-fg-primary font-medium truncate">{item.to_name || item.to_email}</span>
+                      <span className="flex-1 text-fg-secondary truncate px-2">{item.subject}</span>
+                      <span className="w-24 text-center">
+                        <StatusBadge status="sent" />
+                      </span>
+                      <span className="w-20 text-center text-fg-muted">
+                        {item.sent_at ? new Date(item.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                      </span>
+                      <span className="w-16 text-center">
+                        <button onClick={() => setViewEmail(viewEmail?.id === item.id ? null : item)} className="text-accent hover:underline text-xs">
+                          {viewEmail?.id === item.id ? "Hide" : "View"}
+                        </button>
+                      </span>
+                    </div>
+                    {viewEmail?.id === item.id && (
+                      <div className="px-6 py-3 bg-bg-tertiary/30 border-b border-border text-xs space-y-2">
+                        <div><span className="text-fg-muted">To:</span> <span className="text-fg-secondary">{item.to_email}</span></div>
+                        <div><span className="text-fg-muted">Subject:</span> <span className="text-fg-primary font-medium">{item.subject}</span></div>
+                        <div className="text-fg-secondary whitespace-pre-wrap mt-1">{item.body || "No body content"}</div>
+                      </div>
+                    )}
                   </div>
                 ))
               )}

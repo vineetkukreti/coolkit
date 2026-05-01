@@ -75,13 +75,13 @@ function exportCSV(applications, toast) {
     const headers = ['Status', 'Job Title', 'Company', 'Location', 'Platform', 'URL', 'Message', 'Date']
     const rows = applications.map((a) => [
       a.status ?? '',
-      a.title ?? '',
+      a.job_title ?? a.title ?? '',
       a.company ?? '',
       a.location ?? '',
       a.platform ?? '',
-      a.url ?? '',
-      (a.message ?? '').replace(/,/g, ';'),
-      a.timestamp ? new Date(a.timestamp).toISOString() : '',
+      a.job_url ?? a.url ?? '',
+      (a.error_message ?? a.message ?? '').replace(/,/g, ';'),
+      a.applied_at ?? a.created_at ?? a.timestamp ? new Date(a.applied_at || a.created_at || a.timestamp).toISOString() : '',
     ])
     const csvContent = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -116,7 +116,14 @@ export default function AppHistory() {
     { key: 'platform', type: 'select', label: 'Platform', options: [
       { label: 'All Platforms', value: '' }, { label: 'LinkedIn', value: 'linkedin' }, { label: 'Naukri', value: 'naukri' }, { label: 'Wellfound', value: 'wellfound' },
     ], match: (item, v) => (item.platform || '').toLowerCase().includes(v) },
-    { key: 'date_range', type: 'dateRange', match: dateRangeMatch('timestamp') },
+    { key: 'date_range', type: 'dateRange', match: (item, v) => {
+      if (!v) return true
+      const d = parseInt(v)
+      if (isNaN(d)) return true
+      const val = item.applied_at || item.created_at || item.timestamp
+      if (!val) return false
+      return new Date(val).getTime() >= Date.now() - d * 86400000
+    }},
   ]
   const appFilters = useFilters(appFilterDefs)
 
@@ -141,7 +148,7 @@ export default function AppHistory() {
 
   // Derived: applied today — computed from raw applications list, not from stats
   const appliedToday = useMemo(
-    () => applications.filter((a) => a.status === 'applied' && isToday(a.timestamp)).length,
+    () => applications.filter((a) => a.status === 'applied' && isToday(a.applied_at || a.created_at || a.timestamp)).length,
     [applications]
   )
 
@@ -151,7 +158,7 @@ export default function AppHistory() {
     let result = applications.filter((a) => {
       const matchesSearch =
         !q ||
-        (a.title ?? '').toLowerCase().includes(q) ||
+        (a.job_title ?? a.title ?? '').toLowerCase().includes(q) ||
         (a.company ?? '').toLowerCase().includes(q)
       return matchesSearch
     })
@@ -303,36 +310,36 @@ export default function AppHistory() {
                   <StatusBadge status={app.status} />
                 </div>
                 <div className="min-w-0">
-                  {app.url ? (
+                  {(app.job_url || app.url) ? (
                     <a
-                      href={app.url}
+                      href={app.job_url || app.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-fg-primary text-sm font-medium truncate block hover:text-accent transition-colors"
-                      title={app.title}
+                      title={app.job_title || app.title}
                     >
-                      {app.title ?? '—'}
+                      {app.job_title ?? app.title ?? '—'}
                     </a>
                   ) : (
-                    <span className="text-fg-primary text-sm font-medium truncate block" title={app.title}>
-                      {app.title ?? '—'}
+                    <span className="text-fg-primary text-sm font-medium truncate block" title={app.job_title || app.title}>
+                      {app.job_title ?? app.title ?? '—'}
                     </span>
                   )}
-                  {app.message && (
-                    <p className="text-fg-muted text-xs truncate mt-0.5" title={app.message}>
-                      {app.message}
+                  {(app.error_message || app.message) && (
+                    <p className="text-fg-muted text-xs truncate mt-0.5" title={app.error_message || app.message}>
+                      {app.error_message || app.message}
                     </p>
                   )}
                 </div>
                 <span className="text-fg-secondary text-sm truncate" title={app.company}>{app.company ?? '—'}</span>
                 <span className="text-fg-secondary text-sm truncate" title={app.location}>{app.location ?? '—'}</span>
                 <span className="text-fg-muted text-sm capitalize">{app.platform ?? '—'}</span>
-                <span className="text-fg-muted text-xs font-mono whitespace-nowrap">{formatDate(app.timestamp)}</span>
+                <span className="text-fg-muted text-xs font-mono whitespace-nowrap">{formatDate(app.applied_at || app.created_at || app.timestamp)}</span>
                 {/* Retry action for failed applications */}
                 <div className="flex justify-end">
-                  {app.status === 'failed' && app.url && (
+                  {app.status === 'failed' && (app.job_url || app.url) && (
                     <a
-                      href={app.url}
+                      href={app.job_url || app.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       title="Open job URL to retry manually"

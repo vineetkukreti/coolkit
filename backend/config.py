@@ -13,29 +13,35 @@ def _load_profile():
             return json.loads(_PROFILE_PATH.read_text())
         except (json.JSONDecodeError, OSError):
             pass
-    # Fallback to hardcoded defaults
+    # Fallback to generic defaults — user fills in via onboarding or Settings
     return {
-        "name": "Vineet Kukreti",
-        "first_name": "Vineet",
-        "last_name": "Kukreti",
-        "email": "vineetkukreti34@gmail.com",
-        "phone": "+91-7983207219",
-        "resume_path": "assets/resumes/default/vineet_kukreti_resume.pdf",
-        "location": "India",
-        "experience_years": 2,
-        "current_title": "AI Engineer",
-        "linkedin": "https://linkedin.com/in/vineetkukreti",
-        "github": "https://github.com/vineetkukreti",
-        "website": "https://github.com/vineetkukreti",
+        "name": "",
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "phone": "",
+        "resume_path": "assets/resumes/default/resume.pdf",
+        "location": "",
+        "experience_years": 0,
+        "current_title": "",
+        "employer": "",
+        "employer_domain": "",
+        "linkedin": "",
+        "github": "",
+        "website": "",
         "notice_period_days": 30,
-        "desired_salary": 1200000,
-        "current_salary": 800000,
+        "desired_salary": 0,
+        "current_salary": 0,
         "require_visa": "No",
         "us_citizenship": "Not Applicable",
         "willing_to_relocate": "Yes",
         "previously_worked_here": "No",
         "education_level": "Bachelor's Degree",
+        "education": "",
         "certifications": "None",
+        "skills_summary": "",
+        "projects": [],
+        "achievements": [],
         "gender": "Decline to self-identify",
         "ethnicity": "Decline to self-identify",
         "disability_status": "I don't wish to answer",
@@ -45,23 +51,60 @@ def _load_profile():
 
 PROFILE = _load_profile()
 
-RESUME_SKILLS = {
-    # core skills (high weight)
+_SEARCH_CONFIG_PATH = Path(__file__).parent.parent / "config" / "search_config.json"
+
+_DEFAULT_RESUME_SKILLS = {
     "python": 3, "neo4j": 4, "knowledge graph": 4, "fastapi": 3,
     "docker": 2, "llm": 4, "nlp": 3, "prompt engineering": 3,
-    # domain (high weight)
     "healthcare": 4, "oncology": 5, "dermatopathology": 5,
     "clinical": 3, "medical": 3, "biomedical": 3, "pathology": 4,
     "ehr": 2, "fhir": 2, "hipaa": 2,
-    # general AI
     "ai engineer": 4, "machine learning": 3, "deep learning": 2,
     "data pipeline": 3, "etl": 3, "microservice": 2,
-    # databases
     "postgresql": 2, "mongodb": 2, "graph database": 3,
-    # APIs & LLMs
     "openai": 2, "claude": 3, "cohere": 2, "generative ai": 3,
     "asyncio": 2, "async": 1,
 }
+
+_DEFAULT_TARGET_ROLES = [
+    "AI Engineer", "ML Engineer", "GenAI Engineer",
+    "LLM Engineer", "Agentic AI Engineer",
+]
+
+_DEFAULT_DOMAIN_KEYWORDS = [
+    "healthcare", "health care", "healthtech", "health tech",
+    "medical", "medtech", "med tech", "biomedical",
+    "clinical", "clinician", "clinic",
+    "hospital", "patient", "ehr", "electronic health record",
+    "pharma", "pharmaceutical", "drug discovery",
+    "fda", "hipaa", "hl7", "fhir", "dicom",
+    "radiology", "pathology", "oncology", "genomics",
+    "telehealth", "telemedicine", "digital health",
+    "life sciences", "biotech", "biotechnology",
+]
+
+_DEFAULT_ACTIVE_REGIONS = ["india", "japan", "europe", "uae", "us", "singapore"]
+
+
+def _load_search_config():
+    """Load search config from config/search_config.json if it exists."""
+    if _SEARCH_CONFIG_PATH.exists():
+        try:
+            return json.loads(_SEARCH_CONFIG_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_search_config(config: dict):
+    """Save search config to config/search_config.json."""
+    _SEARCH_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _SEARCH_CONFIG_PATH.write_text(json.dumps(config, indent=2))
+
+
+_search_config = _load_search_config()
+
+RESUME_SKILLS = _search_config.get("resume_skills", _DEFAULT_RESUME_SKILLS)
 
 # ─── Randomized keyword engine ────────────────────────────────────────────────
 # Every scraping run picks a fresh combo so LinkedIn sees different searches.
@@ -107,32 +150,16 @@ def random_search_keywords() -> str:
 # Default search settings
 DEFAULTS = {
     "keywords": random_search_keywords(),  # randomized every run
-    "location": "India",
-    "max_jobs": 25,
-    "mode": "semi",  # "semi" = approve each, "auto" = apply all
+    "location": _search_config.get("default_location", "India"),
+    "max_jobs": _search_config.get("max_jobs", 25),
+    "mode": _search_config.get("mode", "semi"),  # "semi" = approve each, "auto" = apply all
 }
 
 # ─── Target Roles (ordered by priority) ──────────────────────────────────────
-TARGET_ROLES = [
-    "AI Engineer",
-    "ML Engineer",
-    "GenAI Engineer",
-    "LLM Engineer",
-    "Agentic AI Engineer",
-]
+TARGET_ROLES = _search_config.get("target_roles", _DEFAULT_TARGET_ROLES)
 
 # ─── Domain keywords for healthcare/medical/clinical scoring ──────────────────
-DOMAIN_KEYWORDS = [
-    "healthcare", "health care", "healthtech", "health tech",
-    "medical", "medtech", "med tech", "biomedical",
-    "clinical", "clinician", "clinic",
-    "hospital", "patient", "ehr", "electronic health record",
-    "pharma", "pharmaceutical", "drug discovery",
-    "fda", "hipaa", "hl7", "fhir", "dicom",
-    "radiology", "pathology", "oncology", "genomics",
-    "telehealth", "telemedicine", "digital health",
-    "life sciences", "biotech", "biotechnology",
-]
+DOMAIN_KEYWORDS = _search_config.get("domain_keywords", _DEFAULT_DOMAIN_KEYWORDS)
 
 # ─── Smart Query Engine components ───────────────────────────────────────────
 ROLE_STEMS = [
@@ -203,7 +230,7 @@ REGIONS = {
     },
 }
 
-ACTIVE_REGIONS = ["india", "japan", "europe", "uae", "us", "singapore"]
+ACTIVE_REGIONS = _search_config.get("active_regions", _DEFAULT_ACTIVE_REGIONS)
 
 # Build location stems dynamically from active regions
 LOCATION_STEMS = ["remote", "Remote", "worldwide", "anywhere", "global", ""]
@@ -302,16 +329,32 @@ def build_smart_queries() -> list[str]:
 def get_profile_context() -> str:
     """Generate profile text block from PROFILE dict. Used in AI prompts."""
     skills = ", ".join(RESUME_SKILLS.keys())
-    return (
-        f"Name: {PROFILE['name']}\n"
-        f"Experience: {PROFILE['experience_years']} years as {PROFILE['current_title']} at Southguild Technologies\n"
-        f"Core Stack: Python, FastAPI, Neo4j, LLMs (Claude, OpenAI, Cohere), Docker, knowledge graphs\n"
-        f"Domain Expertise: Healthcare AI, oncology, dermatopathology, NLP-to-Cypher, biomedical ETL\n"
-        f"Key Achievement: PathAssist system — 98.8% accuracy, 5x faster clinical insight retrieval\n"
-        f"Publications: 2 IEEE papers, 3 patents in AI/ML\n"
-        f"Technical Skills: {skills}\n"
-        f"Education: B.Tech (Hons.) CS Engineering, 8.5 CGPA, ML & AI specialization\n"
-        f"Location: {PROFILE['location']} (willing to relocate)\n"
-        f"LinkedIn: {PROFILE['linkedin']}\n"
-        f"GitHub: {PROFILE['github']}\n"
-    )
+    lines = []
+    if PROFILE.get("name"):
+        lines.append(f"Name: {PROFILE['name']}")
+    employer = PROFILE.get("employer", "")
+    if PROFILE.get("current_title"):
+        exp = f"{PROFILE['experience_years']} years as " if PROFILE.get("experience_years") else ""
+        emp = f" at {employer}" if employer else ""
+        lines.append(f"Experience: {exp}{PROFILE['current_title']}{emp}")
+    if PROFILE.get("skills_summary"):
+        lines.append(f"Core Stack: {PROFILE['skills_summary']}")
+    if skills:
+        lines.append(f"Technical Skills: {skills}")
+    for proj in PROFILE.get("projects", []):
+        name = proj.get("name", "")
+        desc = proj.get("description", "")
+        if name:
+            lines.append(f"Project: {name} — {desc}" if desc else f"Project: {name}")
+    for ach in PROFILE.get("achievements", []):
+        if ach:
+            lines.append(f"Achievement: {ach}")
+    if PROFILE.get("education"):
+        lines.append(f"Education: {PROFILE['education']}")
+    if PROFILE.get("location"):
+        lines.append(f"Location: {PROFILE['location']}")
+    if PROFILE.get("linkedin"):
+        lines.append(f"LinkedIn: {PROFILE['linkedin']}")
+    if PROFILE.get("github"):
+        lines.append(f"GitHub: {PROFILE['github']}")
+    return "\n".join(lines) + "\n" if lines else "No profile configured.\n"

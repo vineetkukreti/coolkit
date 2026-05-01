@@ -138,6 +138,8 @@ def run_daily_cycle(max_applications: int = 500, run_scrapers: bool = True):
         with _orch_lock:
             orchestrator_state["status"] = "error"
     finally:
+        if conn:
+            conn.close()
         with _orch_lock:
             if orchestrator_state["status"] not in ("error",):
                 orchestrator_state["status"] = "done"

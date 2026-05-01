@@ -7,7 +7,7 @@ import requests
 
 from config import RESUME_SKILLS, get_profile_context
 
-VINEET_PROFILE = get_profile_context()
+CANDIDATE_PROFILE = get_profile_context()
 RESUME_SKILLS_LIST = ", ".join(RESUME_SKILLS.keys())
 
 # ---------------------------------------------------------------------------
@@ -48,11 +48,11 @@ def _parse_json_response(text: str) -> dict:
 
 
 def evaluate_job(jd_text: str) -> dict:
-    """Evaluate a job description against Vineet's profile and return a structured assessment."""
+    """Evaluate a job description against the candidate's profile and return a structured assessment."""
     prompt = f"""You are a career-match analyst. Evaluate the following job description against the candidate profile below.
 
 ━━━ CANDIDATE PROFILE ━━━
-{VINEET_PROFILE}
+{CANDIDATE_PROFILE}
 Resume Skills (with weight): {json.dumps(RESUME_SKILLS, indent=2)}
 
 ━━━ JOB DESCRIPTION ━━━
@@ -109,7 +109,7 @@ def generate_outreach(company: str, role: str, recruiter_name: str = "", context
     prompt = f"""You are an expert cold-outreach copywriter for tech job seekers.
 
 ━━━ CANDIDATE ━━━
-{VINEET_PROFILE}
+{CANDIDATE_PROFILE}
 
 ━━━ TARGET ━━━
 Company: {company}
@@ -120,7 +120,7 @@ Role: {role}
 ━━━ RULES ━━━
 - Reference something SPECIFIC about the company (product, recent news, tech stack)
 - Lead with VALUE the candidate brings, not an ask
-- Include quantified proof points from Vineet's experience (e.g. "built a knowledge-graph pipeline processing 50K+ clinical records")
+- Include quantified proof points from the candidate's experience
 - NEVER use "I'm passionate about" or "caught my eye" or similar clichés
 - Cold email: under 150 words, punchy, clear CTA
 - LinkedIn message: under 300 characters
@@ -158,7 +158,7 @@ def deep_dive_company(company: str, role: str = "") -> dict:
     prompt = f"""You are a competitive intelligence analyst helping a job seeker.
 
 ━━━ CANDIDATE ━━━
-{VINEET_PROFILE}
+{CANDIDATE_PROFILE}
 
 ━━━ COMPANY TO RESEARCH ━━━
 Company: {company}
@@ -173,7 +173,7 @@ Based on your knowledge of this company, produce a JSON object with this structu
     "engineering_culture": "<engineering culture, tech stack, development practices>",
     "challenges": "<key business/technical challenges the company likely faces>",
     "competitive_position": "<where they stand vs competitors>",
-    "your_angle": "<how Vineet's specific skills map to their needs>",
+    "your_angle": "<how the candidate's specific skills map to their needs>",
     "outreach_hook": "<a specific, non-generic hook for cold outreach>",
     "suggested_opening": "<opening line for a cold email or interview>"
 }}
@@ -200,16 +200,16 @@ def tailor_cv(jd_text: str) -> dict:
     prompt = f"""You are an expert CV/resume writer specializing in ATS optimization.
 
 ━━━ CANDIDATE PROFILE ━━━
-{VINEET_PROFILE}
+{CANDIDATE_PROFILE}
 Resume Skills: {RESUME_SKILLS_LIST}
 
 ━━━ JOB DESCRIPTION ━━━
 {jd_text}
 
 ━━━ RULES ━━━
-- NEVER invent skills or experience Vineet does not have
+- NEVER invent skills or experience the candidate does not have
 - Only reformulate and reorder existing experience using the JD's vocabulary
-- Prioritize keywords from the JD that Vineet genuinely possesses
+- Prioritize keywords from the JD that the candidate genuinely possesses
 - Professional summary: 2-3 sentences, tailored to this specific role
 
 Return ONLY a JSON object with this structure:
@@ -222,11 +222,11 @@ Return ONLY a JSON object with this structure:
         "...5-8 bullets"
     ],
     "keyword_coverage": {{
-        "matched": ["<JD keywords Vineet has>"],
-        "gaps": ["<JD keywords Vineet lacks>"],
+        "matched": ["<JD keywords the candidate has>"],
+        "gaps": ["<JD keywords the candidate lacks>"],
         "coverage_pct": <0-100 integer>
     }},
-    "suggested_filename": "<suggested resume filename e.g. Vineet_Kukreti_AI_Engineer_CompanyName.pdf>"
+    "suggested_filename": "<suggested resume filename e.g. FirstName_LastName_Role_Company.pdf>"
 }}
 
 Return ONLY valid JSON."""
@@ -250,7 +250,7 @@ def interview_prep(company: str, role: str) -> dict:
     prompt = f"""You are a senior technical interview coach.
 
 ━━━ CANDIDATE ━━━
-{VINEET_PROFILE}
+{CANDIDATE_PROFILE}
 Resume Skills: {RESUME_SKILLS_LIST}
 
 ━━━ TARGET ━━━
@@ -275,7 +275,7 @@ Generate interview preparation material. Return ONLY a JSON object:
             "title": "<story title>",
             "situation": "<context>",
             "task": "<what needed to be done>",
-            "action": "<what Vineet did>",
+            "action": "<what the candidate did>",
             "result": "<outcome with metrics if possible>",
             "reflection": "<what was learned>",
             "maps_to": ["<competency 1>", "<competency 2>"]
@@ -291,7 +291,7 @@ Generate interview preparation material. Return ONLY a JSON object:
     ]
 }}
 
-Base STAR stories on Vineet's actual experience (healthcare AI, knowledge graphs, clinical NLP, Neo4j pipelines). Do NOT invent projects he hasn't done.
+Base STAR stories on the candidate's actual experience from their profile. Do NOT invent projects they haven't done.
 Return ONLY valid JSON."""
 
     try:

@@ -186,7 +186,7 @@ function EvaluateTab() {
                 {result.cv_matches.map((m, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <Check size={14} className="text-success mt-0.5 shrink-0" />
-                    <span>{m}</span>
+                    <span>{typeof m === 'string' ? m : String(m)}</span>
                   </li>
                 ))}
               </ul>
@@ -199,7 +199,7 @@ function EvaluateTab() {
                 {result.gaps.map((g, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span className="text-danger mt-0.5 shrink-0">&#x2717;</span>
-                    <span>{g}</span>
+                    <span>{typeof g === 'string' ? g : String(g)}</span>
                   </li>
                 ))}
               </ul>
@@ -212,7 +212,7 @@ function EvaluateTab() {
                 {result.personalization_tips.map((t, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <Sparkles size={12} className="text-accent mt-0.5 shrink-0" />
-                    <span>{t}</span>
+                    <span>{typeof t === 'string' ? t : String(t)}</span>
                   </li>
                 ))}
               </ul>
@@ -303,12 +303,12 @@ function OutreachTab() {
                   <span className="font-medium text-fg-primary">Subject:</span> {result.cold_email.subject}
                 </div>
               )}
-              {result.cold_email.body}
+              {String(result.cold_email.body || '')}
             </ResultCard>
           )}
           {result.linkedin_message && (
-            <ResultCard title="LinkedIn Message" copyText={result.linkedin_message}>
-              {result.linkedin_message}
+            <ResultCard title="LinkedIn Message" copyText={typeof result.linkedin_message === 'string' ? result.linkedin_message : String(result.linkedin_message)}>
+              {typeof result.linkedin_message === 'string' ? result.linkedin_message : String(result.linkedin_message)}
             </ResultCard>
           )}
           {result.followup_email && (
@@ -318,10 +318,10 @@ function OutreachTab() {
             >
               {result.followup_email.subject && (
                 <div className="mb-2">
-                  <span className="font-medium text-fg-primary">Subject:</span> {result.followup_email.subject}
+                  <span className="font-medium text-fg-primary">Subject:</span> {String(result.followup_email.subject)}
                 </div>
               )}
-              {result.followup_email.body}
+              {String(result.followup_email.body || '')}
             </ResultCard>
           )}
         </div>
@@ -637,10 +637,10 @@ function InterviewPrepTab() {
               <h3 className="text-sm font-semibold text-fg-primary">STAR Stories</h3>
               {result.star_stories.map((s, i) => (
                 <Collapsible key={i} title={s.title || `Story ${i + 1}`}>
-                  {s.situation && <p className="mb-1"><span className="font-medium text-fg-primary">Situation:</span> {s.situation}</p>}
-                  {s.task && <p className="mb-1"><span className="font-medium text-fg-primary">Task:</span> {s.task}</p>}
-                  {s.action && <p className="mb-1"><span className="font-medium text-fg-primary">Action:</span> {s.action}</p>}
-                  {s.result && <p><span className="font-medium text-fg-primary">Result:</span> {s.result}</p>}
+                  {s.situation && <p className="mb-1"><span className="font-medium text-fg-primary">Situation:</span> {String(s.situation)}</p>}
+                  {s.task && <p className="mb-1"><span className="font-medium text-fg-primary">Task:</span> {String(s.task)}</p>}
+                  {s.action && <p className="mb-1"><span className="font-medium text-fg-primary">Action:</span> {String(s.action)}</p>}
+                  {s.result && <p><span className="font-medium text-fg-primary">Result:</span> {String(s.result)}</p>}
                   {typeof s === 'string' && <p>{s}</p>}
                 </Collapsible>
               ))}

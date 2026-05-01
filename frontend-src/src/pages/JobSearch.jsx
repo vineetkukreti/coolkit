@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Search,
   MapPin,
@@ -96,6 +96,12 @@ export default function JobSearch() {
   // Undo skip — stores { job, timeoutId }
   const skipUndoRef = useRef({});
 
+  useEffect(() => {
+    return () => {
+      Object.values(skipUndoRef.current).forEach(({ timeoutId }) => clearTimeout(timeoutId))
+    }
+  }, [])
+
   function togglePlatform(platform) {
     setActivePlatforms((prev) => {
       const next = new Set(prev);
@@ -146,7 +152,8 @@ export default function JobSearch() {
     setRowState(job.url, "apply");
     try {
       // Open the job URL in a new tab
-      window.open(job.url, "_blank", "noopener,noreferrer");
+      const win = window.open(job.url, "_blank");
+      if (win) win.opener = null;
 
       // Mark as applied in the backend
       await api.markApplied({

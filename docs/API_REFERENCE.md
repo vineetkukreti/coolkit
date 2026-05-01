@@ -1673,7 +1673,7 @@ curl http://localhost:8000/api/profile
   "current_title": "AI Engineer",
   "experience_years": 2,
   "notice_period_days": 30,
-  "resume_path": "assets/vineet_kukreti_resume.pdf"
+  "resume_path": "assets/resume.pdf"
 }
 ```
 
@@ -2823,7 +2823,7 @@ curl http://localhost:8000/api/resumes/variants
   "variants": [
     {
       "name": "healthcare-ai",
-      "path": "assets/resumes/healthcare-ai/vineet_kukreti_resume.pdf",
+      "path": "assets/resumes/healthcare-ai/resume.pdf",
       "description": "Emphasizes FHIR, medical imaging, clinical NLP",
       "keywords": ["healthcare", "fhir", "medical", "clinical"],
       "weight": 1.5,
@@ -2832,7 +2832,7 @@ curl http://localhost:8000/api/resumes/variants
     },
     {
       "name": "data-engineering",
-      "path": "assets/resumes/data-engineering/vineet_kukreti_resume.pdf",
+      "path": "assets/resumes/data-engineering/resume.pdf",
       "description": "Emphasizes pipelines, Spark, Airflow",
       "keywords": ["data engineer", "spark", "airflow", "etl"],
       "weight": 1.0,
@@ -2868,7 +2868,7 @@ curl -X POST http://localhost:8000/api/resumes/variants/healthcare-ai/upload \
 {
   "status": "ok",
   "variant": "healthcare-ai",
-  "filename": "vineet_kukreti_resume.pdf",
+  "filename": "resume.pdf",
   "size_kb": 245
 }
 ```
@@ -2903,7 +2903,7 @@ curl -X POST http://localhost:8000/api/resumes/test-selection \
 ```json
 {
   "selected": "healthcare-ai",
-  "path": "assets/resumes/healthcare-ai/vineet_kukreti_resume.pdf",
+  "path": "assets/resumes/healthcare-ai/resume.pdf",
   "scores": {
     "healthcare-ai": {"score": 12.5, "hits": 5},
     "data-engineering": {"score": 2.0, "hits": 2},
@@ -2937,7 +2937,7 @@ curl -X POST http://localhost:8000/api/resumes/select \
 
 ```json
 {
-  "selected": "assets/resumes/healthcare-ai/vineet_kukreti_resume.pdf"
+  "selected": "assets/resumes/healthcare-ai/resume.pdf"
 }
 ```
 

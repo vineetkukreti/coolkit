@@ -650,7 +650,7 @@ export default function Posts() {
   };
 
   const stopBulkFind = async () => {
-    await api.stopEnrichment("posts");
+    try { await api.stopEnrichment("posts"); } catch {}
     if (bulkPollRef.current) clearInterval(bulkPollRef.current);
     bulkPollRef.current = null;
     setBulkRunning(false);
@@ -747,7 +747,15 @@ export default function Posts() {
                 Stop
               </button>
             )}
-            <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary hover:border-fg-muted transition-colors">
+            <button onClick={() => {
+              try {
+                const headers = ['Title','Company','Location','Platform','URL','Relevance','Created']
+                const rows = posts.map(p => [p.job_title||'',p.company||'',p.location||'',p.platform||'',p.job_url||'',(p.domain_relevance||''),p.created_at||''])
+                const csv = [headers,...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+                const blob = new Blob([csv],{type:'text/csv'})
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `posts_${new Date().toISOString().slice(0,10)}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a)
+              } catch(e) { console.error(e) }
+            }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-fg-secondary text-sm hover:text-fg-primary hover:border-fg-muted transition-colors">
               <Download size={15} />
               Export
             </button>

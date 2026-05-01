@@ -517,10 +517,8 @@ export default function PasteOutreach() {
       // Auto-select only fit posts that haven't been contacted yet
       setSelected(new Set(allPosts.map((p, i) => (p.fit && !p.already_contacted) ? i : null).filter(i => i !== null)));
       setStage("review");
-      setExtractProgress("Saving contacts...");
-      for (const post of allPosts.filter(p => p.email)) {
-        try { await api.saveDraft({ post_id: 0, to_email: post.email, subject: "", body: "", ..._extra(post) }); } catch {}
-      }
+      // Contacts are saved as drafts only after email generation (not during extraction)
+      // This prevents empty-body drafts from appearing in email history
       const fitCount = allPosts.filter(p => p.fit).length;
       toast({ type: "success", title: `${allPosts.length} contacts extracted`, description: `${fitCount} eligible, ${allPosts.length - fitCount} saved to HR bank` });
     } catch (err) { toast({ type: "error", title: "Extraction failed", description: err.message }); }

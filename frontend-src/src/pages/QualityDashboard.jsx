@@ -61,7 +61,7 @@ export default function QualityDashboard() {
       setAbStats(ab)
       api.getSmartFilterTop().then(d => setTopJobs(d.jobs || d.posts || [])).catch(() => {})
     } catch (e) {
-      console.error('Dashboard fetch error:', e)
+      /* silent */
     }
     setLoading(false)
   }
@@ -74,7 +74,7 @@ export default function QualityDashboard() {
       await api.scoreAllJobs()
       await fetchAll()
     } catch (e) {
-      console.error('Score error:', e)
+      /* silent */
     }
     setScoring(false)
   }

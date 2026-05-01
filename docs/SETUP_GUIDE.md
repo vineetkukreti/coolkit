@@ -25,8 +25,7 @@ playwright install chromium
 
 # 3. Environment file
 mkdir -p config
-cp config/.env.example config/.env   # or create manually (see below)
-# Edit config/.env with your keys
+cp config/env.example config/.env   # then edit with your keys
 
 # 4. Frontend
 cd frontend-src && npm install && cd ..
@@ -108,6 +107,34 @@ HUNTER_API_KEY=your_hunter_api_key
 | `HUNTER_API_KEY` | No | -- | Hunter.io API key for email finding |
 
 *Required only if you want email outreach features. The server starts without them but prints a warning.
+
+### Profile Configuration
+
+Your profile is stored in `config/profile.json`. It gets created automatically when you complete the onboarding wizard or save settings in the UI. You can also copy the example:
+
+```bash
+cp config/profile.json.example config/profile.json
+# Edit with your details
+```
+
+Key profile fields used for email personalization:
+
+| Field | Used For | Example |
+|-------|----------|---------|
+| `name`, `first_name` | Email greetings & sign-off | "Jane Doe", "Jane" |
+| `current_title` | Self-introduction in emails | "ML Engineer" |
+| `employer` | Current company (also blocked from outreach) | "Acme Corp" |
+| `employer_domain` | Blocked from receiving outreach emails | "acme.com" |
+| `experience_years` | Email context | 3 |
+| `skills_summary` | Core tech stack for email personalization | "Python, PyTorch, React, AWS" |
+| `projects` | Matched to job posts in cold emails | List of `{name, description}` |
+| `achievements` | Included in email prompts | List of strings |
+| `education` | Background context | "M.S. Computer Science, MIT" |
+| `linkedin`, `github` | Included in email signatures | URLs |
+
+All these fields can be edited in **Settings > Profile** in the UI.
+
+**Resume Setup**: Upload your resume in Settings > Profile. For role-specific variants, use Settings > Resume Variants. Resumes are stored in `assets/resumes/{variant}/resume.pdf`.
 
 ### 3. Frontend Setup
 

@@ -4,6 +4,7 @@ import {
   Send, Mail, Database, Target, Zap, RefreshCw, Search,
   Wifi, WifiOff, LayoutDashboard, BarChart3, ChevronDown,
   TrendingUp, AlertTriangle, Lightbulb, Play, Square, Loader2,
+  Check,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useToast } from '../components/Toast'

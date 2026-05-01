@@ -15,7 +15,7 @@ KEEP_ROLES = [
     "multi-agent", "agent framework",
     "clinical ai", "healthcare ai", "medical ai", "health ai",
     "biomedical ai", "clinical ml",
-    # Python developer roles (relevant — Vineet's primary language)
+    # Python developer roles
     "python developer", "python engineer",
     "not specified",
 ]

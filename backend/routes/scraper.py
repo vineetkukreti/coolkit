@@ -44,6 +44,8 @@ def api_start_scraper(req: ScraperStartRequest):
             names = ", ".join(sorted(overlap))
             raise HTTPException(status_code=400, detail=f"Already scraping: {names}. You can start other sources in parallel.")
         sources = [s for s in sources if s not in active]  # filter out any overlap
+        if not sources:
+            return {"status": "ok", "message": "All requested sources already active"}
         scraper_state["running"] = True
         scraper_state["status"] = "running"
     threading.Thread(
