@@ -15,6 +15,7 @@ import LeadDetail from './pages/LeadDetail'
 import AITools from './pages/AITools'
 import SkillsIntelligence from './pages/SkillsIntelligence'
 import SettingsPage from './pages/Settings'
+import Logs from './pages/Logs'
 import { api } from './lib/api'
 import { AlertTriangle, X } from 'lucide-react'
 
@@ -121,6 +122,7 @@ function AppShell() {
             <Route path="/ai-tools" element={<AITools />} />
             <Route path="/skills" element={<SkillsIntelligence />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/logs" element={<Logs />} />
 
             {/* Redirects from old routes */}
             <Route path="/search" element={<Navigate to="/find?tab=search" replace />} />

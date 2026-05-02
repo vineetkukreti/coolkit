@@ -419,3 +419,114 @@ def api_resume_select(req: dict):
             company=req.get("company", ""),
         )
     }
+
+
+# ───────────────────────────────────────────────
+# Ghost Job Detection endpoints
+# ───────────────────────────────────────────────
+
+@router.get("/api/ghost/stats")
+def api_ghost_stats():
+    """Get ghost job statistics."""
+    from services.ghost_detector import get_ghost_stats
+    conn = _get_db()
+    return get_ghost_stats(conn)
+
+@router.post("/api/ghost/scan")
+def api_ghost_scan(limit: int = 100):
+    """Score a batch of posts for ghost job likelihood."""
+    from services.ghost_detector import score_ghost_batch
+    conn = _get_db()
+    return score_ghost_batch(conn, limit=limit)
+
+@router.get("/api/ghost/check/{post_id}")
+def api_ghost_check(post_id: int):
+    """Check ghost score for a single post."""
+    from services.ghost_detector import compute_ghost_score, check_reposts
+    conn = _get_db()
+    row = conn.execute(
+        "SELECT p.*, j.role, j.company, j.location FROM posts p LEFT JOIN jobs j ON j.post_id = p.id WHERE p.id = ?",
+        (post_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Post not found")
+    row = dict(row)
+    row["_repost_score"] = check_reposts(conn, post_id, row.get("company", ""), row.get("role", ""))
+    return compute_ghost_score(row)
+
+
+# ───────────────────────────────────────────────
+# ATS Score endpoints
+# ───────────────────────────────────────────────
+
+@router.post("/api/ats/score")
+def api_ats_score(req: dict):
+    """Score a job description text against resume for ATS compatibility."""
+    from services.ats_scorer import compute_ats_score
+    jd_text = req.get("jd_text", "")
+    if not jd_text:
+        raise HTTPException(status_code=400, detail="jd_text required")
+    return compute_ats_score(jd_text)
+
+@router.get("/api/ats/score/{post_id}")
+def api_ats_score_post(post_id: int):
+    """Score a specific post from the database."""
+    from services.ats_scorer import score_job_ats
+    conn = _get_db()
+    return score_job_ats(conn, post_id)
+
+@router.post("/api/ats/extract-keywords")
+def api_ats_extract(req: dict):
+    """Extract keywords from a job description."""
+    from services.ats_scorer import extract_jd_keywords
+    jd_text = req.get("jd_text", "")
+    if not jd_text:
+        raise HTTPException(status_code=400, detail="jd_text required")
+    return extract_jd_keywords(jd_text)
+
+
+# ───────────────────────────────────────────────
+# Quality Gate endpoints
+# ───────────────────────────────────────────────
+
+@router.post("/api/quality-gate/check")
+def api_quality_gate_check(req: dict):
+    """Pre-apply quality gate check for a job."""
+    from services.quality_gate import gate_check
+    conn = _get_db()
+    return gate_check(
+        post_id=req.get("post_id"),
+        jd_text=req.get("jd_text", ""),
+        smart_score=req.get("smart_score"),
+        conn=conn,
+    )
+
+@router.get("/api/quality-gate/batch")
+def api_quality_gate_batch(limit: int = 50):
+    """Batch quality gate check on top unapplied jobs."""
+    from services.quality_gate import batch_gate_check
+    conn = _get_db()
+    return batch_gate_check(conn, limit=limit)
+
+@router.get("/api/quality-gate/tiers")
+def api_quality_gate_tiers():
+    """Get quality gate tier definitions."""
+    from services.quality_gate import QUALITY_TIERS
+    return QUALITY_TIERS
+
+
+# ───────────────────────────────────────────────
+# Inbox Tracker endpoints
+# ───────────────────────────────────────────────
+
+@router.post("/api/inbox/scan")
+def api_inbox_scan(since: str = None):
+    """Scan inbox for application confirmations, rejections, and interview invites."""
+    from services.inbox_tracker import scan_inbox
+    return scan_inbox(since_date=since)
+
+@router.post("/api/inbox/classify")
+def api_inbox_classify(req: dict):
+    """Classify an email snippet."""
+    from services.inbox_tracker import classify_inbox_email
+    return classify_inbox_email(req.get("subject", ""), req.get("body", ""), req.get("from", ""))

@@ -136,6 +136,11 @@ export const api = {
   getPatterns: () => request('/analytics/patterns'),
   getConversion: () => request('/analytics/conversion'),
 
+  // Server Logs
+  getLogs: (level = '', limit = 100, search = '') => request(`/logs?level=${level}&limit=${limit}&search=${encodeURIComponent(search)}`),
+  getErrors: (limit = 50) => request(`/logs/errors?limit=${limit}`),
+  getLogFile: (lines = 200) => request(`/logs/file?lines=${lines}`),
+
   // Startup Leads
   getLeads: (params = {}) => {
     const qs = new URLSearchParams(params).toString()
@@ -214,6 +219,21 @@ export const api = {
     return res.blob()
   }),
 
+  // Ghost Job Detection
+  getGhostStats: () => request('/ghost/stats'),
+  scanGhostJobs: (limit = 100) => request(`/ghost/scan?limit=${limit}`, { method: 'POST' }),
+  checkGhostScore: (postId) => request(`/ghost/check/${postId}`),
+
+  // ATS Resume Scoring
+  getAtsScore: (jdText) => request('/ats/score', { method: 'POST', body: JSON.stringify({ jd_text: jdText }) }),
+  getAtsScoreForPost: (postId) => request(`/ats/score/${postId}`),
+  extractJdKeywords: (jdText) => request('/ats/extract-keywords', { method: 'POST', body: JSON.stringify({ jd_text: jdText }) }),
+
+  // Quality Gate
+  qualityGateCheck: (data) => request('/quality-gate/check', { method: 'POST', body: JSON.stringify(data) }),
+  qualityGateBatch: (limit = 50) => request(`/quality-gate/batch?limit=${limit}`),
+  qualityGateTiers: () => request('/quality-gate/tiers'),
+
   // Skills Intelligence
   getSkillsDashboard: () => request('/skills/dashboard'),
   analyzeSkills: (data = {}) => request('/skills/analyze', { method: 'POST', body: JSON.stringify(data) }),
@@ -223,4 +243,11 @@ export const api = {
   refreshSkillsTrends: () => request('/skills/trends/refresh', { method: 'POST' }),
   getSkillsNews: () => request('/skills/news'),
   refreshSkillsNews: () => request('/skills/news/refresh', { method: 'POST' }),
+
+  // Inbox Tracker
+  scanInbox: (since) => request(`/inbox/scan${since ? '?since=' + encodeURIComponent(since) : ''}`, { method: 'POST' }),
+  classifyEmail: (subject, body, from) => request('/inbox/classify', { method: 'POST', body: JSON.stringify({ subject, body, from }) }),
+
+  // Funnel Analytics
+  getPipelineFunnel: () => request('/pipeline/funnel'),
 }

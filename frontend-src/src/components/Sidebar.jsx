@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Search, Zap, Mail, GitBranch, BarChart3, Sparkles, Settings, Brain,
+  LayoutDashboard, Search, Zap, Mail, GitBranch, BarChart3, Sparkles, Settings, Brain, Terminal,
 } from 'lucide-react'
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/insights', icon: BarChart3, label: 'Insights' },
   { to: '/skills', icon: Brain, label: 'Skills Intel' },
   { to: '/ai-tools', icon: Sparkles, label: 'AI Tools' },
+  { to: '/logs', icon: Terminal, label: 'Logs' },
 ]
 
 function NavItem({ to, icon: Icon, label }) {

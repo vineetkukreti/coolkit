@@ -1270,10 +1270,13 @@ _followup_lock = threading.Lock()
 def _generate_followup_email(conn, outreach_id):
     """Generate a follow-up email for an existing outreach."""
     row = conn.execute(
-        "SELECT eo.*, p.content, p.author_name, j.role, j.company "
+        "SELECT eo.*, pl.company as pl_company, pl.role as pl_role, pl.recipient_name as pl_name, "
+        "p.content, p.author_name, "
+        "(SELECT j.role FROM jobs j WHERE j.post_id = eo.post_id LIMIT 1) as job_role, "
+        "(SELECT j2.company FROM jobs j2 WHERE j2.post_id = eo.post_id LIMIT 1) as job_company "
         "FROM email_outreach eo "
+        "LEFT JOIN pipeline_leads pl ON pl.outreach_id = eo.id "
         "LEFT JOIN posts p ON p.id = eo.post_id "
-        "LEFT JOIN jobs j ON j.post_id = eo.post_id "
         "WHERE eo.id = ?", (outreach_id,)
     ).fetchone()
     if not row:
@@ -1282,27 +1285,55 @@ def _generate_followup_email(conn, outreach_id):
     row = dict(row)
     followup_num = (row.get("followup_count") or 0) + 1
     original_subject = row.get("subject") or "your previous email"
-    recipient = row.get("recipient_email")
-    company = row.get("company", "the company")
-    role = row.get("role", "the role")
+    recipient = row.get("recipient_email") or ""
+    original_body = row.get("body") or ""
 
-    prompt = f"""You are writing follow-up email #{followup_num} for a job application.
+    # Resolve company and role from multiple sources
+    company = (row.get("job_company") or row.get("pl_company") or "").strip()
+    if not company:
+        # Extract from email domain
+        domain = recipient.split("@")[1].split(".")[0] if "@" in recipient else ""
+        generic = {"gmail", "yahoo", "hotmail", "outlook", "protonmail"}
+        company = domain.title() if domain and domain.lower() not in generic else ""
+
+    role = (row.get("job_role") or row.get("pl_role") or "").strip()
+    if not role:
+        # Extract from email subject (before first separator)
+        subj = original_subject
+        for sep in [" | ", " — ", " - ", " – "]:
+            if sep in subj:
+                role = subj.split(sep)[0].strip()
+                break
+        if not role:
+            role = subj[:50].strip()
+
+    recipient_name = (row.get("pl_name") or row.get("author_name") or "").strip()
+    greeting = f"Hi {recipient_name.split()[0]}," if recipient_name else "Hi,"
+
+    first_name = PROFILE.get("first_name", "") or (PROFILE.get("name", "").split()[0] if PROFILE.get("name") else "")
+
+    prompt = f"""You are writing follow-up email #{followup_num} for a job application cold outreach.
 
 ORIGINAL EMAIL SUBJECT: {original_subject}
+ORIGINAL EMAIL BODY (first 300 chars): {original_body[:300]}
 RECIPIENT: {recipient}
-COMPANY: {company}
+RECIPIENT NAME: {recipient_name or "Unknown"}
+COMPANY: {company or "Unknown"}
 ROLE: {role}
+YOUR NAME: {first_name}
 
 RULES:
-- Keep it SHORT: 60-100 words maximum
+- Keep it SHORT: 50-80 words maximum
+- Start with "{greeting}"
 - Reference the original email briefly ("Following up on my email about...")
 - Add ONE new piece of value (a recent project, a relevant insight, or a specific idea for them)
 - Be respectful of their time
-- End with a soft call to action
+- End with a soft call to action ("Would love to chat" or "Happy to share more")
 - No "just checking in" or "touching base" — add real value
+- Sign off with just your first name
 - Subject line: "Re: {original_subject}" (keep the thread)
 
-OUTPUT FORMAT:
+OUTPUT FORMAT (exactly this):
 Subject: [subject line]
 Body: [email body]
 """
@@ -1329,10 +1360,10 @@ Body: [email body]
         except Exception:
             pass
 
-    # Fallback
+    # Fallback template
     return {
         "subject": f"Re: {original_subject}",
-        "body": f"Hi,\n\nFollowing up on my previous email about the {role} position at {company}. I'd love to discuss how my experience aligns with what you're building.\n\nBest,\n{PROFILE.get('first_name', '') or PROFILE.get('name', '').split()[0] if PROFILE.get('name') else ''}"
+        "body": f"{greeting}\n\nFollowing up on my previous email about the {role} opportunity{(' at ' + company) if company else ''}. I've been working on some relevant projects since and would love to share how my experience could add value to your team.\n\nHappy to jump on a quick call whenever works.\n\nBest,\n{first_name}"
     }
 
 
@@ -1435,6 +1466,10 @@ def _classify_reply(body: str, subject: str = "") -> str:
     """Classify a reply as: interested, auto_reply, rejection, or info."""
     text = ((body or "") + " " + (subject or "")).lower()
 
+    # Strip HTML tags from text before classification
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+
     # Auto-reply patterns (check first — these aren't human replies)
     auto_patterns = [
         "we have received your", "ticket has been created", "request received",
@@ -1444,6 +1479,11 @@ def _classify_reply(body: str, subject: str = "") -> str:
         "visit our career site", "apply on our website", "apply online",
         "this mailbox is not monitored", "unsubscribe", "click here to apply",
         "auto response", "autoresponse",
+        # Recruitment portal auto-replies
+        "interested in career opportunities at",  # e.g. Capital One generic auto-reply
+        "please visit our career", "please apply through",
+        "apply for the suitable position",  # e.g. Infosys auto-reply
+        "apply on our job portal",
     ]
     if any(p in text for p in auto_patterns):
         return "auto_reply"
@@ -1456,6 +1496,10 @@ def _classify_reply(body: str, subject: str = "") -> str:
         "no longer available", "no longer open",
         "not a good fit", "not the right fit", "not a match", "not the right match",
         "not suitable", "not aligned",
+        # Short polite declines
+        "we will pass", "will pass at the moment", "we'll pass",
+        "going to pass", "have to pass", "i'll pass",
+        "apologies. we will pass", "we are going to pass",
         # "Unfortunately" phrases
         "unfortunately", "regret to inform", "regret that",
         # Moving forward with others
@@ -1486,8 +1530,8 @@ def _classify_reply(body: str, subject: str = "") -> str:
         "reach out if something", "future opportunities",
         "best of luck", "wish you the best", "good luck in your search",
         "all the best in your", "wishing you success",
-        # Skill mismatch
-        "we are looking for", "require someone with",
+        # Skill mismatch — only clear rejections, not "we are looking for X, do you have it?"
+        "require someone with",
         "different skill set", "specific requirements",
         "not what we're looking for",
         # Generic decline phrases
@@ -1502,7 +1546,8 @@ def _classify_reply(body: str, subject: str = "") -> str:
     if any(p in text for p in reject_patterns):
         return "rejection"
 
-    # Interest patterns
+    # Interest patterns — use word-boundary-aware matching to avoid false positives
+    # e.g. "interested in career opportunities at Capital One?" is an auto-reply, not interest
     interest_patterns = [
         "interested", "relevant", "your background", "your experience",
         "would like to", "let's connect", "let's schedule", "let's chat",
