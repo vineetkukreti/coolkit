@@ -77,16 +77,23 @@ def find_emails_for_company(
         _collect(strategy_hunter_io(domain))
 
     # Strategy 2: Website scraping (most reliable free method)
+    # Only accept emails whose domain matches the company's domain
     if website:
-        _collect(strategy_website(website))
+        raw_website_emails = strategy_website(website)
+        if domain:
+            raw_website_emails = [
+                e for e in raw_website_emails
+                if e["email"].rsplit("@", 1)[-1] == domain
+            ]
+        _collect(raw_website_emails)
 
-    # Strategy 3: DuckDuckGo search
+    # Strategy 3: DuckDuckGo search (pass domain so only matching emails are kept)
     extra = location.split(",")[0] if location else ""
-    _collect(strategy_duckduckgo(company_name, extra))
+    _collect(strategy_duckduckgo(company_name, extra, company_domain=domain))
 
     # Strategy 4: Google search fallback (only if we haven't found much yet)
     if len(all_found) < 2:
-        _collect(strategy_google_search(company_name, extra))
+        _collect(strategy_google_search(company_name, extra, company_domain=domain))
 
     # Strategy 5: Person-name patterns (if we have both author name and domain)
     person_guesses = []
@@ -100,11 +107,15 @@ def find_emails_for_company(
         generic_guesses = strategy_generic_patterns(domain)
 
     # ── Verify pattern-guessed emails before adding ──
-    # This is the key fix: previously guesses were saved unverified
-    guesses_to_verify = (person_guesses + generic_guesses)[:8]  # limit to 8 for speed
+    guesses_to_verify = (person_guesses + generic_guesses)[:8]
     if guesses_to_verify:
         verified_guesses = verify_batch(guesses_to_verify, timeout=5)
         _collect(verified_guesses)
+
+    # ── Verify ALL found emails via MX + SMTP ──
+    # This ensures we never save unverifiable emails
+    if all_found:
+        all_found = verify_batch(all_found, timeout=5)
 
     # Sort by score (best first)
     all_found.sort(key=lambda x: x["score"], reverse=True)

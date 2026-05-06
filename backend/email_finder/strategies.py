@@ -54,15 +54,36 @@ CONTACT_PATHS = [
 
 JUNK_DOMAINS = {
     "example.com", "test.com", "email.com", "domain.com", "yourcompany.com",
+    "company.com", "work.com", "placeholder.com", "sample.com", "demo.com",
     "sentry.io", "wixpress.com", "googleapis.com", "cloudflare.com",
     "gravatar.com", "wordpress.com", "w3.org", "schema.org",
     "facebook.com", "twitter.com", "google.com", "github.com", "duckduckgo.com",
     "jquery.com", "bootstrap.com", "fontawesome.com", "tailwindcss.com",
     "linkedin.com", "instagram.com", "youtube.com", "tiktok.com",
     "apple.com", "microsoft.com", "amazon.com",
+    # Website builders / template sites — emails belong to the platform, not the company
+    "framer.com", "webflow.com", "squarespace.com", "wix.com", "godaddy.com",
+    "shopify.com", "weebly.com", "carrd.co", "netlify.com", "vercel.com",
+    # Aggregator / directory sites — emails are from other companies, not the target
+    "companydetails.in", "falconebiz.com", "zaubacorp.com", "tofler.in",
+    "indiamart.com", "justdial.com", "tradeindia.com", "exportersindia.com",
+    "internshala.com", "naukri.com", "indeed.com", "glassdoor.com",
+    "crunchbase.com", "tracxn.com", "owler.com", "pitchbook.com",
+    # Academic / government — not the startup's email
+    "nirmauni.ac.in", "iitb.ac.in", "iisc.ac.in", "gov.in",
+    # Generic mail providers should not be cold-emailed
+    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "protonmail.com",
+    "rediffmail.com", "ymail.com", "aol.com", "icloud.com", "mail.com",
 }
 
 JUNK_PREFIXES = {"noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster", "webmaster"}
+
+# Placeholder local parts that appear in templates / example code
+PLACEHOLDER_LOCALS = {
+    "name", "your", "email", "user", "username", "firstname", "lastname",
+    "first.last", "john", "jane", "john.doe", "jane.doe", "johndoe", "janedoe",
+    "test", "demo", "example", "someone", "person", "yourname", "you",
+}
 
 # Ordered by outreach value
 OUTREACH_PREFIXES = ["careers", "hr", "hiring", "jobs", "info", "contact", "hello", "team", "people", "admin"]
@@ -91,12 +112,25 @@ def is_junk_email(email: str) -> bool:
         return True
     if local in JUNK_PREFIXES:
         return True
+    if local in PLACEHOLDER_LOCALS:
+        return True
     if any(ext in email for ext in [".png", ".jpg", ".gif", ".svg", ".css", ".js"]):
         return True
     if len(local) > 30:
         return True
     digits = sum(1 for c in local if c.isdigit())
     if len(local) > 4 and digits / len(local) > 0.6:
+        return True
+    # Reject URL-encoded or whitespace artifacts
+    if "%" in email:
+        return True
+    # Reject malformed domains (must have a valid TLD, no path-like segments)
+    if "/" in domain or " " in domain:
+        return True
+    if "." not in domain:
+        return True
+    tld = domain.rsplit(".", 1)[-1]
+    if len(tld) < 2 or len(tld) > 10 or not tld.isalpha():
         return True
     return False
 
@@ -400,8 +434,12 @@ def strategy_website(website: str) -> list[dict]:
 
 # ─── Strategy 3: DuckDuckGo Search ──────────────────────────────────────────
 
-def strategy_duckduckgo(company: str, extra: str = "") -> list[dict]:
-    """Search DuckDuckGo for company emails using the duckduckgo-search package."""
+def strategy_duckduckgo(company: str, extra: str = "", company_domain: str = "") -> list[dict]:
+    """Search DuckDuckGo for company emails using the duckduckgo-search package.
+
+    If company_domain is provided, only emails from that domain are accepted.
+    Otherwise emails from any non-junk domain are accepted but scored lower.
+    """
     try:
         from duckduckgo_search import DDGS
     except ImportError:
@@ -419,6 +457,19 @@ def strategy_duckduckgo(company: str, extra: str = "") -> list[dict]:
     found = []
     seen = set()
 
+    def _accept(email_addr):
+        """Only accept emails that plausibly belong to the target company."""
+        if is_junk_email(email_addr):
+            return False
+        email_domain = email_addr.rsplit("@", 1)[-1]
+        # If we know the company's domain, only accept emails on that domain
+        if company_domain:
+            return email_domain == company_domain
+        # Otherwise accept only if the company name appears in the email domain
+        company_clean = re.sub(r'[^a-z0-9]', '', company.lower())
+        domain_clean = re.sub(r'[^a-z0-9]', '', email_domain.lower())
+        return company_clean[:4] in domain_clean if len(company_clean) >= 4 else company_clean in domain_clean
+
     for query in queries:
         try:
             results = DDGS().text(query, max_results=5)
@@ -427,7 +478,7 @@ def strategy_duckduckgo(company: str, extra: str = "") -> list[dict]:
                 body = r.get("body", "")
                 for m in EMAIL_RE.findall(body):
                     m = m.lower()
-                    if m not in seen and not is_junk_email(m):
+                    if m not in seen and _accept(m):
                         seen.add(m)
                         found.append({
                             "email": m,
@@ -436,17 +487,21 @@ def strategy_duckduckgo(company: str, extra: str = "") -> list[dict]:
                             "verified": "unknown",
                         })
 
-                # Follow the result URL and extract emails
+                # Only follow URLs that look like the company's own site
                 href = r.get("href", "")
                 if href and "duckduckgo" not in href:
+                    href_domain = urlparse(href).netloc.replace("www.", "")
+                    # Skip aggregator/directory sites — they contain other companies' emails
+                    if href_domain in JUNK_DOMAINS:
+                        continue
                     page = fetch_page(href)
                     if page:
                         for email in extract_emails_from_html(page):
-                            if email not in seen:
+                            if email not in seen and _accept(email):
                                 seen.add(email)
                                 found.append({
                                     "email": email,
-                                    "source": f"search_ddg:{urlparse(href).netloc}",
+                                    "source": f"search_ddg:{href_domain}",
                                     "score": score_email(email, source="search"),
                                     "verified": "unknown",
                                 })
@@ -462,7 +517,7 @@ def strategy_duckduckgo(company: str, extra: str = "") -> list[dict]:
 
 # ─── Strategy 4: Google Search Fallback ──────────────────────────────────────
 
-def strategy_google_search(company: str, extra: str = "") -> list[dict]:
+def strategy_google_search(company: str, extra: str = "", company_domain: str = "") -> list[dict]:
     """Search Google for company emails using googlesearch-python."""
     try:
         from googlesearch import search as google_search
@@ -480,19 +535,35 @@ def strategy_google_search(company: str, extra: str = "") -> list[dict]:
         log.debug(f"Google search error: {e}")
         return []
 
+    company_clean = re.sub(r'[^a-z0-9]', '', company.lower())
+
     for url in urls[:5]:
+        url_domain = urlparse(url).netloc.replace("www.", "")
+        if url_domain in JUNK_DOMAINS:
+            continue
         try:
             page = fetch_page(url)
             if page:
                 for email in extract_emails_from_html(page):
-                    if email not in seen:
-                        seen.add(email)
-                        found.append({
-                            "email": email,
-                            "source": f"search_google:{urlparse(url).netloc}",
-                            "score": score_email(email, source="search"),
-                            "verified": "unknown",
-                        })
+                    if email in seen or is_junk_email(email):
+                        continue
+                    email_domain = email.rsplit("@", 1)[-1]
+                    # Only accept if email domain matches company
+                    if company_domain and email_domain != company_domain:
+                        continue
+                    if not company_domain:
+                        domain_clean = re.sub(r'[^a-z0-9]', '', email_domain.lower())
+                        if len(company_clean) >= 4 and company_clean[:4] not in domain_clean:
+                            continue
+                        elif len(company_clean) < 4 and company_clean not in domain_clean:
+                            continue
+                    seen.add(email)
+                    found.append({
+                        "email": email,
+                        "source": f"search_google:{url_domain}",
+                        "score": score_email(email, source="search"),
+                        "verified": "unknown",
+                    })
         except Exception:
             continue
         time.sleep(random.uniform(0.5, 1.0))
