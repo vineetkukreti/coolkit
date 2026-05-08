@@ -84,9 +84,17 @@ logger.info("CareerKit server starting...")
 
 app = FastAPI(title="CareerKit")
 
+_cors_origins = [
+    "http://localhost:5173", "http://localhost:8000",
+    "http://127.0.0.1:5173", "http://127.0.0.1:8000",
+]
+# Add production frontend URL if set (e.g. https://coolkit.vercel.app)
+if os.getenv("FRONTEND_URL"):
+    _cors_origins.append(os.getenv("FRONTEND_URL"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8000", "http://127.0.0.1:5173", "http://127.0.0.1:8000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

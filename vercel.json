@@ -1,0 +1,7 @@
+{
+  "buildCommand": "cd frontend-src && npm install && npx vite build --outDir dist",
+  "outputDirectory": "frontend-src/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
