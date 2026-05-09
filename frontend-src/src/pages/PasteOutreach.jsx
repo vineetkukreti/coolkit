@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Sparkles, Send, Save, ArrowLeft, ArrowRight, X, Check, Mail, FileText, Phone,
   Loader2, ClipboardPaste, Paperclip, AlertCircle, CheckCircle, MapPin, Briefcase,
   Clock, Building2, Hash, ChevronDown, ChevronUp, Eye, Database, History,
-  Search, Copy, ExternalLink,
+  Search, Copy, ExternalLink, Radio, Square,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -465,6 +465,7 @@ export default function PasteOutreach() {
   const [stage, setStage] = useState("paste");
   const [rawText, setRawText] = useState("");
   const [extracting, setExtracting] = useState(false);
+  const [pastingFromClipboard, setPastingFromClipboard] = useState(false);
   const [extractProgress, setExtractProgress] = useState("");
 
   const [posts, setPosts] = useState([]);
@@ -476,6 +477,13 @@ export default function PasteOutreach() {
   const [attachResume, setAttachResume] = useState(true);
   const [sendingIdx, setSendingIdx] = useState(null);
   const [doneStats, setDoneStats] = useState({ sent: 0, drafted: 0 });
+
+  // ── Live clipboard capture mode ─────────────────────────────────────────
+  const [capturing, setCapturing] = useState(false);
+  const [captureStats, setCaptureStats] = useState({ accepted: 0, dupes: 0, noContact: 0 });
+  const capturedHashesRef = useRef(new Set());
+  const lastClipboardRef = useRef("");
+  const captureStatsRef = useRef({ accepted: 0, dupes: 0, noContact: 0 });
 
   const _extra = (p) => ({
     source: "pasted", phone: p.phone || "", hashtags: p.hashtags || "",
@@ -498,12 +506,28 @@ export default function PasteOutreach() {
     return chunks.length > 1 ? chunks.map(c => c.trim()).filter(c => c.length >= 30) : [text.trim()];
   }
 
-  async function handleExtract() {
-    if (!rawText.trim()) return;
+  // \u2500\u2500 Capture helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // Hash for dedup \u2014 normalized (lowercase, collapsed whitespace, first 200 chars)
+  function hashPost(text) {
+    return text.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 200);
+  }
+
+  // A captured post must have at least one of: email or phone (\u226510 digits).
+  // Otherwise it can't be used for outreach so we drop it.
+  function validatePost(text) {
+    const hasEmail = /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text);
+    const phoneCandidates = text.match(/(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?){1,3}\d{3,4}/g) || [];
+    const hasPhone = phoneCandidates.some((m) => m.replace(/\D/g, "").length >= 10);
+    return { valid: hasEmail || hasPhone, hasEmail, hasPhone };
+  }
+
+  async function extractFromText(text) {
+    const sourceText = text.trim();
+    if (!sourceText) return;
     setExtracting(true);
     setExtractProgress("Analyzing posts...");
     try {
-      const chunks = splitIntoPosts(rawText.trim());
+      const chunks = splitIntoPosts(sourceText);
       const BATCH_SIZE = 5;
       const allPosts = [];
       for (let batch = 0; batch < chunks.length; batch += BATCH_SIZE) {
@@ -524,6 +548,116 @@ export default function PasteOutreach() {
     } catch (err) { toast({ type: "error", title: "Extraction failed", description: err.message }); }
     finally { setExtracting(false); setExtractProgress(""); }
   }
+
+  async function handleExtract() {
+    await extractFromText(rawText);
+  }
+
+  async function handlePasteAndExtract() {
+    if (!navigator.clipboard?.readText) {
+      toast({ type: "error", title: "Clipboard unavailable", description: "Your browser did not allow clipboard reading here." });
+      return;
+    }
+
+    setPastingFromClipboard(true);
+    try {
+      const clipboardText = await navigator.clipboard.readText();
+      if (!clipboardText.trim()) {
+        toast({ type: "warning", title: "Clipboard is empty", description: "Copy one or more hiring posts first, separated with ---." });
+        return;
+      }
+      setRawText(clipboardText);
+      await extractFromText(clipboardText);
+    } catch (err) {
+      toast({ type: "error", title: "Paste failed", description: err.message || "Allow clipboard access and try again." });
+    } finally {
+      setPastingFromClipboard(false);
+    }
+  }
+
+  // ── Live capture: poll clipboard, dedup, filter, append with --- ─────
+  async function ingestClipboardCopy(text) {
+    const trimmed = (text || "").trim();
+    if (trimmed.length < 30) return; // too short, ignore silently
+
+    const fp = hashPost(trimmed);
+    if (capturedHashesRef.current.has(fp)) {
+      captureStatsRef.current.dupes += 1;
+      setCaptureStats({ ...captureStatsRef.current });
+      toast({ type: "info", title: "Duplicate skipped", description: "Already captured this post." });
+      return;
+    }
+
+    const { valid, hasEmail, hasPhone } = validatePost(trimmed);
+    if (!valid) {
+      captureStatsRef.current.noContact += 1;
+      setCaptureStats({ ...captureStatsRef.current });
+      toast({ type: "warning", title: "Skipped — no contact info", description: "Post must contain an email or phone." });
+      return;
+    }
+
+    capturedHashesRef.current.add(fp);
+    captureStatsRef.current.accepted += 1;
+    setCaptureStats({ ...captureStatsRef.current });
+    setRawText((prev) => (prev.trim() ? `${prev.trim()}\n---\n${trimmed}` : trimmed));
+    const tag = hasEmail && hasPhone ? "email + phone" : hasEmail ? "email" : "phone";
+    toast({ type: "success", title: `✓ Captured #${captureStatsRef.current.accepted}`, description: `Detected ${tag}` });
+  }
+
+  function startCapture() {
+    if (!navigator.clipboard?.readText) {
+      toast({ type: "error", title: "Clipboard unavailable", description: "Your browser blocks clipboard reads here." });
+      return;
+    }
+    // Seed dedup with whatever the user already typed/pasted manually
+    if (rawText.trim()) {
+      splitIntoPosts(rawText.trim()).forEach((p) => capturedHashesRef.current.add(hashPost(p)));
+    }
+    // Don't ingest whatever happens to be on the clipboard at the moment of "Start"
+    navigator.clipboard.readText().then((t) => { lastClipboardRef.current = t || ""; }).catch(() => {});
+    captureStatsRef.current = { accepted: 0, dupes: 0, noContact: 0 };
+    setCaptureStats({ accepted: 0, dupes: 0, noContact: 0 });
+    setCapturing(true);
+    toast({ type: "info", title: "Capture started", description: "Copy posts on LinkedIn, then switch back here to ingest." });
+  }
+
+  function stopCapture() {
+    setCapturing(false);
+    const { accepted, dupes, noContact } = captureStatsRef.current;
+    if (accepted > 0 || dupes > 0 || noContact > 0) {
+      toast({ type: "success", title: `Capture stopped`, description: `${accepted} captured · ${dupes} duplicates · ${noContact} no contact` });
+    }
+  }
+
+  useEffect(() => {
+    if (!capturing) return;
+    let cancelled = false;
+
+    async function poll() {
+      if (cancelled) return;
+      try {
+        const t = await navigator.clipboard.readText();
+        if (cancelled) return;
+        if (t && t !== lastClipboardRef.current) {
+          lastClipboardRef.current = t;
+          await ingestClipboardCopy(t);
+        }
+      } catch {
+        // permission denied / not focused — silently retry
+      }
+    }
+
+    const id = setInterval(poll, 700);
+    const onFocus = () => { poll(); };
+    window.addEventListener("focus", onFocus);
+    poll(); // immediate first read after start
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [capturing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleGenerate() {
     const postsWithEmail = posts.filter((_, i) => selected.has(i)).filter(p => p.email);
@@ -625,15 +759,58 @@ export default function PasteOutreach() {
           {stage === "paste" && (
             <div className="space-y-4">
               <div className="bg-bg-secondary border border-border rounded-2xl overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-3 px-5 py-3 border-b border-border/50 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
                     <FileText size={15} className="text-accent" />
                     <span className="text-sm font-semibold text-fg-primary">Paste LinkedIn Hiring Posts</span>
                   </div>
-                  <span className="text-[11px] text-fg-muted">Separate posts with <code className="px-1.5 py-0.5 rounded bg-bg-tertiary text-fg-secondary font-mono">---</code></span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-fg-muted hidden md:inline">Auto-separated with <code className="px-1.5 py-0.5 rounded bg-bg-tertiary text-fg-secondary font-mono">---</code></span>
+                    {!capturing ? (
+                      <>
+                        <button onClick={handlePasteAndExtract} disabled={extracting || pastingFromClipboard}
+                          className="inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-bg-tertiary border border-border text-fg-secondary text-xs font-medium hover:text-fg-primary transition-colors disabled:opacity-50"
+                          title="Read once from clipboard">
+                          {pastingFromClipboard ? <Loader2 size={12} className="animate-spin" /> : <ClipboardPaste size={12} />}
+                          Paste Once
+                        </button>
+                        <button onClick={startCapture} disabled={extracting}
+                          className="inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50 shadow-sm shadow-accent/20"
+                          title="Watch your clipboard — every copy auto-appends here">
+                          <Radio size={12} />
+                          Start Capture
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={stopCapture}
+                        className="inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors shadow-sm shadow-danger/20">
+                        <Square size={11} className="fill-current" />
+                        Stop · {captureStats.accepted} captured
+                      </button>
+                    )}
+                  </div>
                 </div>
+                {capturing && (
+                  <div className="flex items-center gap-3 px-5 py-2.5 bg-danger/10 border-b border-danger/20">
+                    <span className="relative flex shrink-0 w-2 h-2">
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-danger opacity-75 animate-ping" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-danger" />
+                    </span>
+                    <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                      <span className="text-xs font-semibold text-danger">Capturing</span>
+                      <span className="text-[11px] text-fg-muted truncate">Copy posts on LinkedIn, then switch back here to ingest.</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 text-[11px] font-medium">
+                      <span className="text-success">{captureStats.accepted} captured</span>
+                      <span className="text-fg-muted">·</span>
+                      <span className="text-warning">{captureStats.dupes} dup</span>
+                      <span className="text-fg-muted">·</span>
+                      <span className="text-fg-muted">{captureStats.noContact} no contact</span>
+                    </div>
+                  </div>
+                )}
                 <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} rows={16} autoFocus
-                  placeholder={"3d\n🚀 Company A is Hiring – AI Engineer\nExperience: 2-3 years | Remote\n📩 hr@company-a.com\n---\n1w\n🔥 Company B – ML Engineer\n📩 jobs@company-b.com\n\n(Tip: add 3d, 1w, 2mo at the start of each post for when it was posted)"}
+                  placeholder={"Click Start Capture, then go copy hiring posts on LinkedIn — each copy auto-appends here.\n\nOr paste manually:\n\n🚀 Company A — AI Engineer\n📩 hr@company-a.com\n---\n🔥 Company B — ML Engineer\n📩 jobs@company-b.com  · +91 98xxx xx234\n\n(Posts without an email or phone are skipped during capture.)"}
                   className="w-full bg-bg-primary px-5 py-4 text-sm text-fg-primary placeholder:text-fg-muted/50 focus:outline-none resize-y font-mono leading-relaxed" />
               </div>
               <div className="flex items-center justify-between">

@@ -646,8 +646,159 @@ def scrape_indeed(page, conn, max_posts: int = 100, on_event=None) -> list[dict]
 # Tested live: .srp-jobtuple-wrapper (20 cards), .title, .comp-name,
 # .locWdth, .expwdth, .sal all confirmed working. No login needed.
 
+def _first_scrapling_text(node, selector: str) -> str:
+    """Return text from the first matching Scrapling element."""
+    try:
+        match = node.css(selector)
+        if not match:
+            return ""
+        item = match[0]
+        if hasattr(item, "get_all_text"):
+            return item.get_all_text(strip=True)
+        value = item.get()
+        return value.clean() if hasattr(value, "clean") else str(value).strip()
+    except Exception:
+        return ""
+
+
+def _first_scrapling_attr(node, selector: str, attr: str) -> str:
+    """Return an attribute from the first matching Scrapling element."""
+    try:
+        match = node.css(selector)
+        if not match:
+            return ""
+        return (match[0].attrib or {}).get(attr, "").strip()
+    except Exception:
+        return ""
+
+
+def _extract_naukri_jobs_from_scrapling(page) -> list[dict]:
+    """Extract normalized Naukri jobs from a Scrapling Response."""
+    jobs = []
+    seen = set()
+
+    for card in page.css(".srp-jobtuple-wrapper"):
+        title = _first_scrapling_text(card, "a.title")
+        job_url = _first_scrapling_attr(card, "a.title", "href")
+        if not title or not job_url or job_url in seen:
+            continue
+
+        seen.add(job_url)
+        company = _first_scrapling_text(card, "a.comp-name")
+        location = _first_scrapling_text(card, ".locWdth")
+        experience = _first_scrapling_text(card, ".expwdth")
+        salary = _first_scrapling_text(card, ".sal")
+
+        skills = []
+        for skill in card.css(".tag-li, .dot-gt .tag-li, .tags-gt span"):
+            try:
+                text = skill.get_all_text(strip=True)
+            except Exception:
+                text = ""
+            if text and len(text) < 40 and text not in skills:
+                skills.append(text)
+
+        desc_parts = []
+        if experience:
+            desc_parts.append(f"Experience: {experience}.")
+        if salary:
+            desc_parts.append(f"Salary: {salary}.")
+        if skills:
+            desc_parts.append(f"Skills: {', '.join(skills)}")
+
+        jobs.append({
+            "title": title,
+            "company": company,
+            "location": location,
+            "jobUrl": job_url,
+            "desc": " ".join(desc_parts).strip(),
+        })
+
+    return jobs
+
+
+def _scrape_naukri_with_scrapling(url: str) -> list[dict]:
+    from scrapling.fetchers import StealthyFetcher
+
+    response = StealthyFetcher.fetch(
+        url,
+        headless=False,
+        wait=1000,
+        timeout=45000,
+        wait_selector=".srp-jobtuple-wrapper",
+    )
+    return _extract_naukri_jobs_from_scrapling(response)
+
+
+def _scrape_naukri_with_playwright(page, url: str, emit) -> list[dict]:
+    try:
+        page.goto(url, timeout=30000, wait_until="domcontentloaded")
+    except Exception as e:
+        emit({"type": "error", "message": f"Naukri navigation error: {str(e)[:200]}"})
+        return []
+
+    time.sleep(random.uniform(3, 5))
+
+    # Dismiss any login popups or chatbot overlays
+    for popup_sel in ['#login-layer button.crossIcon', 'button[class*="close"]', '.chatbot_closeBtn']:
+        try:
+            btn = page.query_selector(popup_sel)
+            if btn:
+                btn.click()
+                time.sleep(0.5)
+        except Exception:
+            pass
+
+    # Scroll to load all 20 cards
+    for _ in range(4):
+        page.evaluate("window.scrollBy(0, 800)")
+        time.sleep(random.uniform(1, 1.5))
+
+    # Verified selectors from live testing (2026-04-24):
+    # Container: .srp-jobtuple-wrapper (20 per page)
+    # Title: a.title (class="title ") — also in h2
+    # Company: a.comp-name (class=" comp-name " or " comp-name mw-25")
+    # Location: span.locWdth
+    # Experience: span.expwdth (e.g., "0-5 Yrs", "1-4 Yrs")
+    # Salary: span.sal (e.g., "2-5 Lacs PA") — present on ~30% of cards
+    # Skills: span.tag-li (e.g., "Python", "Machine Learning") — job tags
+    return page.evaluate("""() => {
+        const cards = [];
+        document.querySelectorAll('.srp-jobtuple-wrapper').forEach(el => {
+            const titleEl = el.querySelector('a.title');
+            const companyEl = el.querySelector('a.comp-name');
+            const locEl = el.querySelector('.locWdth');
+            const expEl = el.querySelector('.expwdth');
+            const salEl = el.querySelector('.sal');
+            const title = titleEl ? titleEl.innerText.trim() : '';
+            const jobUrl = titleEl ? titleEl.href : '';
+            const company = companyEl ? companyEl.innerText.trim() : '';
+            const location = locEl ? locEl.innerText.trim() : '';
+            const experience = expEl ? expEl.innerText.trim() : '';
+            const salary = salEl ? salEl.innerText.trim() : '';
+
+            // Extract skill tags
+            const skills = [];
+            el.querySelectorAll('.tag-li, .dot-gt .tag-li, .tags-gt span').forEach(s => {
+                const t = s.innerText.trim();
+                if (t && t.length < 40) skills.push(t);
+            });
+
+            if (title && jobUrl) {
+                let desc = '';
+                if (experience) desc += `Experience: ${experience}. `;
+                if (salary) desc += `Salary: ${salary}. `;
+                if (skills.length) desc += `Skills: ${skills.join(', ')}`;
+
+                cards.push({ title, company, location, jobUrl, desc: desc.trim() });
+            }
+        });
+        const seen = new Set();
+        return cards.filter(c => { if (seen.has(c.jobUrl)) return false; seen.add(c.jobUrl); return true; });
+    }""")
+
 def scrape_naukri(page, conn, max_posts: int = 100, on_event=None) -> list[dict]:
-    """Scrape Naukri.com job listings via Playwright. No login required."""
+    """Scrape Naukri.com job listings via Scrapling, with Playwright fallback."""
     all_posts = []
     dedup = DedupCache(conn)
     emit = lambda e: on_event(e) if on_event else None
@@ -659,7 +810,7 @@ def scrape_naukri(page, conn, max_posts: int = 100, on_event=None) -> list[dict]
         "agentic AI engineer", "healthcare AI",
     ]
 
-    emit({"type": "info", "message": "Starting Naukri scraper..."})
+    emit({"type": "info", "message": "Starting Naukri scraper with Scrapling..."})
 
     for si, term in enumerate(search_terms):
         if len(all_posts) >= max_posts:
@@ -670,70 +821,13 @@ def scrape_naukri(page, conn, max_posts: int = 100, on_event=None) -> list[dict]
         kw = term.replace(" ", "-")
         url = f"https://www.naukri.com/{kw}-jobs?experience=1&experience=3&jobAge=7"
         try:
-            page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            jobs = _scrape_naukri_with_scrapling(url)
+        except ModuleNotFoundError:
+            emit({"type": "error", "message": "Scrapling is not installed. Install requirements and retrying with Playwright fallback."})
+            jobs = _scrape_naukri_with_playwright(page, url, emit) if page else []
         except Exception as e:
-            emit({"type": "error", "message": f"Naukri navigation error: {str(e)[:200]}"})
-            continue
-
-        time.sleep(random.uniform(3, 5))
-
-        # Dismiss any login popups or chatbot overlays
-        for popup_sel in ['#login-layer button.crossIcon', 'button[class*="close"]', '.chatbot_closeBtn']:
-            try:
-                btn = page.query_selector(popup_sel)
-                if btn:
-                    btn.click()
-                    time.sleep(0.5)
-            except Exception:
-                pass
-
-        # Scroll to load all 20 cards
-        for _ in range(4):
-            page.evaluate("window.scrollBy(0, 800)")
-            time.sleep(random.uniform(1, 1.5))
-
-        # Verified selectors from live testing (2026-04-24):
-        # Container: .srp-jobtuple-wrapper (20 per page)
-        # Title: a.title (class="title ") — also in h2
-        # Company: a.comp-name (class=" comp-name " or " comp-name mw-25")
-        # Location: span.locWdth
-        # Experience: span.expwdth (e.g., "0-5 Yrs", "1-4 Yrs")
-        # Salary: span.sal (e.g., "2-5 Lacs PA") — present on ~30% of cards
-        # Skills: span.tag-li (e.g., "Python", "Machine Learning") — job tags
-        jobs = page.evaluate("""() => {
-            const cards = [];
-            document.querySelectorAll('.srp-jobtuple-wrapper').forEach(el => {
-                const titleEl = el.querySelector('a.title');
-                const companyEl = el.querySelector('a.comp-name');
-                const locEl = el.querySelector('.locWdth');
-                const expEl = el.querySelector('.expwdth');
-                const salEl = el.querySelector('.sal');
-                const title = titleEl ? titleEl.innerText.trim() : '';
-                const jobUrl = titleEl ? titleEl.href : '';
-                const company = companyEl ? companyEl.innerText.trim() : '';
-                const location = locEl ? locEl.innerText.trim() : '';
-                const experience = expEl ? expEl.innerText.trim() : '';
-                const salary = salEl ? salEl.innerText.trim() : '';
-
-                // Extract skill tags
-                const skills = [];
-                el.querySelectorAll('.tag-li, .dot-gt .tag-li, .tags-gt span').forEach(s => {
-                    const t = s.innerText.trim();
-                    if (t && t.length < 40) skills.push(t);
-                });
-
-                if (title && jobUrl) {
-                    let desc = '';
-                    if (experience) desc += `Experience: ${experience}. `;
-                    if (salary) desc += `Salary: ${salary}. `;
-                    if (skills.length) desc += `Skills: ${skills.join(', ')}`;
-
-                    cards.push({ title, company, location, jobUrl, desc: desc.trim() });
-                }
-            });
-            const seen = new Set();
-            return cards.filter(c => { if (seen.has(c.jobUrl)) return false; seen.add(c.jobUrl); return true; });
-        }""")
+            emit({"type": "error", "message": f"Naukri Scrapling error: {str(e)[:200]}. Retrying with Playwright fallback."})
+            jobs = _scrape_naukri_with_playwright(page, url, emit) if page else []
 
         emit({"type": "extract", "count": len(jobs)})
 

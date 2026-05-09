@@ -14,3 +14,4 @@ crawl4ai
 dnspython
 duckduckgo-search
 googlesearch-python
+scrapling[fetchers]

@@ -83,6 +83,103 @@ def _company_from_email(email_addr: str) -> str:
     return company.title()
 
 
+def _coalesce(*values) -> str:
+    """Return the first non-empty value as a stripped string."""
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _stage_from_email(email_status: str, reply_type: str | None = None) -> str:
+    """Map outreach status into one of the allowed pipeline stages."""
+    if email_status == "replied":
+        if reply_type == "rejection":
+            return "rejected"
+        if reply_type == "auto_reply":
+            return "applied"
+        return "replied"
+    return "applied"
+
+
+def _reply_event_content(reply_type: str, reply_preview: str | None, outreach_id: int) -> str:
+    preview = (reply_preview or "")[:150]
+    return f"[{reply_type.upper()}] {preview}\n\n[outreach:{outreach_id}]"
+
+
+def _bounce_event_content(error_message: str | None, outreach_id: int) -> str:
+    message = error_message or "Delivery failure detected"
+    return f"{message[:200]}\n\n[outreach:{outreach_id}]"
+
+
+def _insert_reply_event_once(db_conn, lead_id: int, outreach_id: int, reply_type: str, reply_preview: str | None) -> bool:
+    existing = db_conn.execute(
+        """SELECT 1 FROM pipeline_events
+           WHERE lead_id = ?
+             AND event_type = 'email_reply'
+             AND content LIKE ?
+           LIMIT 1""",
+        (lead_id, f"%[outreach:{outreach_id}]%"),
+    ).fetchone()
+    if existing:
+        return False
+
+    db_conn.execute(
+        "INSERT INTO pipeline_events (lead_id, event_type, title, content) VALUES (?, 'email_reply', ?, ?)",
+        (lead_id, f"Reply Detected ({reply_type})", _reply_event_content(reply_type, reply_preview, outreach_id)),
+    )
+    return True
+
+
+def _insert_bounce_event_once(db_conn, lead_id: int, outreach_id: int, error_message: str | None) -> bool:
+    existing = db_conn.execute(
+        """SELECT 1 FROM pipeline_events
+           WHERE lead_id = ?
+             AND event_type = 'email_bounced'
+             AND content LIKE ?
+           LIMIT 1""",
+        (lead_id, f"%[outreach:{outreach_id}]%"),
+    ).fetchone()
+    if existing:
+        return False
+
+    db_conn.execute(
+        "INSERT INTO pipeline_events (lead_id, event_type, title, content) VALUES (?, 'email_bounced', 'Email Bounced', ?)",
+        (lead_id, _bounce_event_content(error_message, outreach_id)),
+    )
+    return True
+
+
+def _find_duplicate_lead(db_conn, recipient_email: str, post_id, company: str):
+    """Find an existing pipeline lead for the same outreach target."""
+    email = (recipient_email or "").strip().lower()
+    if not email:
+        return None
+
+    if post_id:
+        return db_conn.execute(
+            """SELECT id, stage, outreach_id FROM pipeline_leads
+               WHERE LOWER(TRIM(recipient_email)) = ?
+                 AND post_id = ?
+               LIMIT 1""",
+            (email, post_id),
+        ).fetchone()
+
+    if company:
+        return db_conn.execute(
+            """SELECT id, stage, outreach_id FROM pipeline_leads
+               WHERE LOWER(TRIM(recipient_email)) = ?
+                 AND LOWER(TRIM(COALESCE(company, ''))) = LOWER(TRIM(?))
+               LIMIT 1""",
+            (email, company),
+        ).fetchone()
+
+    return None
+
+
 # ───────────────────────────────────────────────
 # Pydantic models
 # ───────────────────────────────────────────────
@@ -268,45 +365,73 @@ def api_pipeline_sync():
     untracked = db_conn.execute(
         """SELECT eo.id, eo.post_id, eo.recipient_email, eo.subject, eo.body, eo.sent_at,
                   eo.status as email_status, eo.reply_type, eo.reply_preview,
+                  eo.error_message, eo.error_type,
+                  eo.role as outreach_role, eo.company as outreach_company, eo.location as outreach_location,
                   p.author_name,
-                  (SELECT j.role FROM jobs j WHERE j.post_id = eo.post_id LIMIT 1) as role,
-                  (SELECT j2.company FROM jobs j2 WHERE j2.post_id = eo.post_id LIMIT 1) as company,
-                  (SELECT j3.location FROM jobs j3 WHERE j3.post_id = eo.post_id LIMIT 1) as location
+                  (SELECT j.role FROM jobs j WHERE j.post_id = eo.post_id LIMIT 1) as job_role,
+                  (SELECT j2.company FROM jobs j2 WHERE j2.post_id = eo.post_id LIMIT 1) as job_company,
+                  (SELECT j3.location FROM jobs j3 WHERE j3.post_id = eo.post_id LIMIT 1) as job_location
            FROM email_outreach eo
            LEFT JOIN posts p ON p.id = eo.post_id
-           WHERE eo.status IN ('sent', 'replied')
+           WHERE eo.status IN ('sent', 'replied', 'failed', 'bounced')
              AND eo.id NOT IN (SELECT outreach_id FROM pipeline_leads WHERE outreach_id IS NOT NULL)"""
     ).fetchall()
 
     for row in untracked:
         row = dict(row)
-        # Determine initial stage based on email status
-        if row.get("email_status") == "replied":
-            if row.get("reply_type") == "rejection":
-                stage = "rejected"
-            elif row.get("reply_type") == "auto_reply":
-                stage = "applied"
-            else:
-                stage = "replied"
-        else:
-            stage = "applied"
+        status = row.get("email_status")
+        is_bounce = status == "bounced" or (status == "failed" and row.get("error_type") == "bounced")
 
-        # Derive name/role/company from email data when post join fails
+        # Derive name/role/company from outreach metadata before falling back to post/job/email data.
         name = row.get("author_name", "")
         if not name:
             name = _name_from_email(row.get("recipient_email", ""))
-        role = row.get("role", "")
-        if not role:
-            role = _role_from_subject(row.get("subject", ""))
-        company = row.get("company", "")
-        if not company:
-            company = _company_from_email(row.get("recipient_email", ""))
+        role = _coalesce(row.get("outreach_role"), row.get("job_role"), _role_from_subject(row.get("subject", "")))
+        company = _coalesce(row.get("outreach_company"), row.get("job_company"), _company_from_email(row.get("recipient_email", "")))
+        location = _coalesce(row.get("outreach_location"), row.get("job_location"))
+
+        duplicate = _find_duplicate_lead(db_conn, row.get("recipient_email", ""), row.get("post_id"), company)
+        if duplicate:
+            if not duplicate["outreach_id"]:
+                db_conn.execute(
+                    "UPDATE pipeline_leads SET outreach_id = ?, updated_at = datetime('now') WHERE id = ?",
+                    (row["id"], duplicate["id"]),
+                )
+                updated += 1
+
+            if is_bounce:
+                if _insert_bounce_event_once(db_conn, duplicate["id"], row["id"], row.get("error_message")):
+                    updated += 1
+                continue
+
+            if status == "replied" and row.get("reply_type") and row.get("reply_type") != "auto_reply":
+                new_stage = _stage_from_email(status, row.get("reply_type"))
+                if duplicate["stage"] == "applied" and new_stage != duplicate["stage"]:
+                    db_conn.execute(
+                        "UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
+                        (new_stage, duplicate["id"]),
+                    )
+                    db_conn.execute(
+                        "INSERT INTO pipeline_events (lead_id, event_type, title, content) VALUES (?, 'stage_change', ?, ?)",
+                        (duplicate["id"], f"Auto-synced \u2192 {new_stage.title()}",
+                         f"Email reply detected as {row['reply_type']}"),
+                    )
+                    updated += 1
+                if _insert_reply_event_once(db_conn, duplicate["id"], row["id"], row["reply_type"], row.get("reply_preview")):
+                    updated += 1
+            continue
+
+        # Do not create new pipeline leads for bounced or failed outreach.
+        if is_bounce or status == "failed":
+            continue
+
+        stage = _stage_from_email(status, row.get("reply_type"))
 
         db_conn.execute(
             """INSERT INTO pipeline_leads (post_id, outreach_id, recipient_name, recipient_email, role, company, location, stage, source, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'email', ?)""",
             (row.get("post_id"), row["id"], name, row["recipient_email"],
-             role, company, row.get("location", ""),
+             role, company, location,
              stage, row.get("sent_at") or ""),
         )
         lead_id = db_conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -319,17 +444,14 @@ def api_pipeline_sync():
 
         # If already replied, add reply event too
         if row.get("email_status") == "replied" and row.get("reply_type"):
-            db_conn.execute(
-                "INSERT INTO pipeline_events (lead_id, event_type, title, content) VALUES (?, 'email_reply', ?, ?)",
-                (lead_id, f"Reply Detected ({row['reply_type']})",
-                 f"[{row['reply_type'].upper()}] {(row.get('reply_preview') or '')[:150]}"),
-            )
+            _insert_reply_event_once(db_conn, lead_id, row["id"], row["reply_type"], row.get("reply_preview"))
 
         inserted += 1
 
     # 2. Sync stale pipeline stages — update leads where email_outreach has newer status
     stale = db_conn.execute(
-        """SELECT pl.id, pl.stage, eo.status as email_status, eo.reply_type
+        """SELECT pl.id, pl.stage, eo.id as outreach_id, eo.status as email_status,
+                  eo.reply_type, eo.reply_preview
            FROM pipeline_leads pl
            JOIN email_outreach eo ON eo.id = pl.outreach_id
            WHERE eo.status = 'replied'
@@ -349,12 +471,27 @@ def api_pipeline_sync():
             (row["id"], f"Auto-synced \u2192 {new_stage.title()}",
              f"Email reply detected as {row['reply_type']}"),
         )
+        _insert_reply_event_once(db_conn, row["id"], row["outreach_id"], row["reply_type"], row["reply_preview"])
         updated += 1
+
+    # 2b. Record bounces on existing leads without changing stage.
+    bounced = db_conn.execute(
+        """SELECT pl.id, eo.id as outreach_id, eo.error_message
+           FROM pipeline_leads pl
+           JOIN email_outreach eo ON eo.id = pl.outreach_id
+           WHERE eo.status IN ('failed', 'bounced')
+             AND (eo.status = 'bounced' OR eo.error_type = 'bounced')"""
+    ).fetchall()
+
+    for row in bounced:
+        if _insert_bounce_event_once(db_conn, row["id"], row["outreach_id"], row["error_message"]):
+            updated += 1
 
     # 3. Backfill empty role/company/name on existing leads
     enriched = 0
     empty_leads = db_conn.execute(
-        """SELECT pl.id, pl.recipient_email, eo.subject
+        """SELECT pl.id, pl.recipient_email, eo.subject,
+                  eo.role as outreach_role, eo.company as outreach_company, eo.location as outreach_location
            FROM pipeline_leads pl
            LEFT JOIN email_outreach eo ON eo.id = pl.outreach_id
            WHERE (pl.role IS NULL OR pl.role = '' OR pl.company IS NULL OR pl.company = ''
@@ -369,9 +506,9 @@ def api_pipeline_sync():
         if not current["recipient_name"]:
             updates["recipient_name"] = _name_from_email(row["recipient_email"])
         if not current["role"]:
-            updates["role"] = _role_from_subject(row["subject"])
+            updates["role"] = _coalesce(row["outreach_role"], _role_from_subject(row["subject"]))
         if not current["company"]:
-            updates["company"] = _company_from_email(row["recipient_email"])
+            updates["company"] = _coalesce(row["outreach_company"], _company_from_email(row["recipient_email"]))
         if updates:
             set_clause = ", ".join(f"{k} = ?" for k in updates)
             db_conn.execute(
