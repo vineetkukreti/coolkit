@@ -1,5 +1,7 @@
-"""AI tools, ATS scanner, follow-up, liveness, and analytics routes."""
+"""AI tools, ATS scanner, follow-up, liveness, clipboard, and analytics routes."""
 
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 
@@ -20,6 +22,48 @@ def _get_db():
     if not hasattr(_local, 'conn') or _local.conn is None:
         _local.conn = init_db()
     return _local.conn
+
+
+def _read_clipboard_command():
+    """Return the first available local clipboard reader command."""
+    candidates = [
+        ("qdbus", ["qdbus", "org.kde.klipper", "/klipper", "getClipboardContents"]),
+        ("wl-paste", ["wl-paste", "--no-newline"]),
+        ("xclip", ["xclip", "-selection", "clipboard", "-o"]),
+        ("xsel", ["xsel", "--clipboard", "--output"]),
+        ("pbpaste", ["pbpaste"]),
+    ]
+    for source, cmd in candidates:
+        if shutil.which(cmd[0]):
+            return source, cmd
+    return None, None
+
+
+@router.get("/api/clipboard")
+def api_clipboard_read():
+    """Read the local system clipboard for CareerKit's capture mode."""
+    source, cmd = _read_clipboard_command()
+    if not cmd:
+        raise HTTPException(status_code=503, detail="No local clipboard reader found")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail=f"{source} timed out while reading clipboard")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{source} clipboard read failed: {exc}")
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "Clipboard read failed").strip()
+        raise HTTPException(status_code=503, detail=f"{source}: {detail}")
+
+    return {"text": proc.stdout or "", "source": source}
 
 
 # ───────────────────────────────────────────────

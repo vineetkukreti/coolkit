@@ -153,6 +153,7 @@ export const api = {
   importLeads: () => request('/leads/import', { method: 'POST' }),
 
   // AI Tools
+  getClipboard: () => request('/clipboard'),
   evaluateJob: (jdText) => request('/tools/evaluate', { method: 'POST', body: JSON.stringify({ jd_text: jdText }) }),
   generateOutreach: (data) => request('/tools/outreach', { method: 'POST', body: JSON.stringify(data) }),
   deepDive: (data) => request('/tools/deep-dive', { method: 'POST', body: JSON.stringify(data) }),

@@ -481,9 +481,12 @@ export default function PasteOutreach() {
   // ── Live clipboard capture mode ─────────────────────────────────────────
   const [capturing, setCapturing] = useState(false);
   const [captureStats, setCaptureStats] = useState({ accepted: 0, dupes: 0, noContact: 0 });
+  const [captureStatus, setCaptureStatus] = useState("");
   const capturedHashesRef = useRef(new Set());
   const lastClipboardRef = useRef("");
   const captureStatsRef = useRef({ accepted: 0, dupes: 0, noContact: 0 });
+  const captureSourceRef = useRef("");
+  const captureErrorRef = useRef("");
 
   const _extra = (p) => ({
     source: "pasted", phone: p.phone || "", hashtags: p.hashtags || "",
@@ -576,6 +579,29 @@ export default function PasteOutreach() {
   }
 
   // ── Live capture: poll clipboard, dedup, filter, append with --- ─────
+  async function readCaptureClipboard() {
+    try {
+      const data = await api.getClipboard();
+      captureSourceRef.current = data.source ? `system:${data.source}` : "system";
+      captureErrorRef.current = "";
+      return data.text || "";
+    } catch (backendErr) {
+      if (navigator.clipboard?.readText) {
+        try {
+          const text = await navigator.clipboard.readText();
+          captureSourceRef.current = "browser";
+          captureErrorRef.current = "";
+          return text || "";
+        } catch (browserErr) {
+          captureErrorRef.current = browserErr.message || backendErr.message || "Clipboard read blocked";
+          throw browserErr;
+        }
+      }
+      captureErrorRef.current = backendErr.message || "Clipboard read blocked";
+      throw backendErr;
+    }
+  }
+
   async function ingestClipboardCopy(text) {
     const trimmed = (text || "").trim();
     if (trimmed.length < 30) return; // too short, ignore silently
@@ -604,21 +630,27 @@ export default function PasteOutreach() {
     toast({ type: "success", title: `✓ Captured #${captureStatsRef.current.accepted}`, description: `Detected ${tag}` });
   }
 
-  function startCapture() {
-    if (!navigator.clipboard?.readText) {
-      toast({ type: "error", title: "Clipboard unavailable", description: "Your browser blocks clipboard reads here." });
-      return;
-    }
+  async function startCapture() {
     // Seed dedup with whatever the user already typed/pasted manually
     if (rawText.trim()) {
       splitIntoPosts(rawText.trim()).forEach((p) => capturedHashesRef.current.add(hashPost(p)));
     }
     // Don't ingest whatever happens to be on the clipboard at the moment of "Start"
-    navigator.clipboard.readText().then((t) => { lastClipboardRef.current = t || ""; }).catch(() => {});
+    try {
+      lastClipboardRef.current = await readCaptureClipboard();
+    } catch {
+      lastClipboardRef.current = "";
+    }
     captureStatsRef.current = { accepted: 0, dupes: 0, noContact: 0 };
     setCaptureStats({ accepted: 0, dupes: 0, noContact: 0 });
+    const status = captureSourceRef.current.startsWith("system")
+      ? "Watching the system clipboard. Copy posts anywhere and they will append here."
+      : captureSourceRef.current === "browser"
+        ? "Browser clipboard fallback active. Copy a post, then return here or press Ctrl+V."
+        : "Clipboard watcher unavailable. Copy a post, then press Ctrl+V here to capture it.";
+    setCaptureStatus(status);
     setCapturing(true);
-    toast({ type: "info", title: "Capture started", description: "Copy posts on LinkedIn, then switch back here to ingest." });
+    toast({ type: "info", title: "Capture started", description: status });
   }
 
   function stopCapture() {
@@ -632,30 +664,52 @@ export default function PasteOutreach() {
   useEffect(() => {
     if (!capturing) return;
     let cancelled = false;
+    let readFailures = 0;
 
     async function poll() {
       if (cancelled) return;
       try {
-        const t = await navigator.clipboard.readText();
+        const t = await readCaptureClipboard();
         if (cancelled) return;
+        if (readFailures > 0) {
+          readFailures = 0;
+          setCaptureStatus(
+            captureSourceRef.current.startsWith("system")
+              ? "Watching the system clipboard. Copy posts anywhere and they will append here."
+              : "Browser clipboard fallback active. Copy a post, then return here or press Ctrl+V."
+          );
+        }
         if (t && t !== lastClipboardRef.current) {
           lastClipboardRef.current = t;
           await ingestClipboardCopy(t);
         }
-      } catch {
-        // permission denied / not focused — silently retry
+      } catch (err) {
+        readFailures += 1;
+        if (readFailures === 1 || readFailures % 10 === 0) {
+          setCaptureStatus(`Clipboard read blocked: ${captureErrorRef.current || err.message || "Use Ctrl+V here after copying."}`);
+        }
       }
+    }
+
+    async function onPaste(event) {
+      const text = event.clipboardData?.getData("text/plain") || "";
+      if (!text.trim()) return;
+      event.preventDefault();
+      lastClipboardRef.current = text;
+      await ingestClipboardCopy(text);
     }
 
     const id = setInterval(poll, 700);
     const onFocus = () => { poll(); };
     window.addEventListener("focus", onFocus);
+    window.addEventListener("paste", onPaste);
     poll(); // immediate first read after start
 
     return () => {
       cancelled = true;
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("paste", onPaste);
     };
   }, [capturing]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -798,7 +852,7 @@ export default function PasteOutreach() {
                     </span>
                     <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
                       <span className="text-xs font-semibold text-danger">Capturing</span>
-                      <span className="text-[11px] text-fg-muted truncate">Copy posts on LinkedIn, then switch back here to ingest.</span>
+                      <span className="text-[11px] text-fg-muted truncate">{captureStatus || "Copy posts on LinkedIn, then switch back here to ingest."}</span>
                     </div>
                     <div className="flex items-center gap-3 shrink-0 text-[11px] font-medium">
                       <span className="text-success">{captureStats.accepted} captured</span>
