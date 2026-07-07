@@ -179,6 +179,74 @@ class PipelineSyncTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(reply_events, 1)
 
+    def test_offer_reply_sets_offer_stage(self):
+        self._insert_outreach(
+            recipient_email="akhil@startup.example",
+            status="replied",
+            reply_type="offer",
+            reply_preview="Pleased to offer you the position. Offer letter attached.",
+        )
+        self.conn.commit()
+
+        pipeline.api_pipeline_sync()
+
+        lead = self._lead()
+        self.assertEqual(lead["stage"], "offer")
+
+    def test_offer_advances_already_interviewing_lead(self):
+        # The exact bug: an offer arriving after the lead already moved past 'applied'.
+        outreach_id = self._insert_outreach(
+            recipient_email="akhil@startup.example",
+            status="replied",
+            reply_type="offer",
+            reply_preview="We are pleased to offer you the role. Welcome aboard!",
+        )
+        self.conn.execute(
+            """INSERT INTO pipeline_leads (outreach_id, recipient_email, stage, company)
+               VALUES (?, ?, 'interviewing', ?)""",
+            (outreach_id, "akhil@startup.example", "Startup"),
+        )
+        self.conn.commit()
+
+        pipeline.api_pipeline_sync()
+
+        lead = self._lead()
+        self.assertEqual(lead["stage"], "offer")
+
+    def test_interview_reply_sets_interviewing_stage(self):
+        self._insert_outreach(
+            recipient_email="hr@interviewco.com",
+            status="replied",
+            reply_type="interview",
+            reply_preview="We'd like to schedule a technical interview. Share your availability.",
+        )
+        self.conn.commit()
+
+        pipeline.api_pipeline_sync()
+
+        lead = self._lead()
+        self.assertEqual(lead["stage"], "interviewing")
+
+    def test_offer_is_not_downgraded_by_later_rejection_signal(self):
+        # Forward-only: once at 'offer', a stale 'replied' reply must not pull it back.
+        outreach_id = self._insert_outreach(
+            recipient_email="akhil@startup.example",
+            status="replied",
+            reply_type="positive",
+            reply_preview="Thanks for the chat.",
+        )
+        self.conn.execute(
+            """INSERT INTO pipeline_leads (outreach_id, recipient_email, stage, company)
+               VALUES (?, ?, 'offer', ?)""",
+            (outreach_id, "akhil@startup.example", "Startup"),
+        )
+        self.conn.commit()
+
+        pipeline.api_pipeline_sync()
+
+        lead = self._lead()
+        self.assertEqual(lead["stage"], "offer")
+
     def test_existing_recipient_company_lead_is_not_duplicated(self):
         self.conn.execute(
             """INSERT INTO pipeline_leads

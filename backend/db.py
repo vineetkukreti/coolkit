@@ -22,10 +22,54 @@ import sqlite3
 import hashlib
 import argparse
 import re
+import contextvars
 from pathlib import Path
 from datetime import datetime
 
 DB_PATH = Path("data/linkedin_jobs.db")
+
+# ─── Multi-user isolation ────────────────────────────────────────────────────
+# Each user gets their own SQLite file under data/users/<id>/data.db. The shared
+# users table lives in a separate auth DB. The current request's user id is held
+# in a context var; init_db() (with no explicit path) resolves the right file.
+AUTH_DB_PATH = Path("data/auth.db")
+USERS_DIR = Path("data/users")
+
+# Set per-request by the auth middleware (and per-worker via worker_ctx).
+# None means "no user context" — only reachable from the CLI or tests, which
+# pass an explicit db_path and therefore never depend on this.
+current_user_id: contextvars.ContextVar = contextvars.ContextVar("current_user_id", default=None)
+
+
+def _user_db_path(user_id) -> Path:
+    """Resolve (and lazily create the dir for) a user's private DB file."""
+    d = USERS_DIR / str(user_id)
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "data.db"
+
+
+AUTH_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    email           TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash   TEXT NOT NULL,
+    name            TEXT,
+    created_at      TEXT DEFAULT (datetime('now'))
+);
+"""
+
+
+def init_auth_db() -> sqlite3.Connection:
+    """Open the shared auth DB (users table). Never uses the user context var."""
+    AUTH_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(AUTH_DB_PATH), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    if mode.lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript(AUTH_SCHEMA)
+    conn.commit()
+    return conn
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS posts (
@@ -327,7 +371,13 @@ def run_migrations(conn):
 
 
 def init_db(db_path: str | Path | None = None) -> sqlite3.Connection:
-    path = str(db_path or DB_PATH)
+    if db_path is None:
+        uid = current_user_id.get()
+        # uid is set for every authenticated /api/* request and inside workers.
+        # Falls back to the legacy single-user DB only for the CLI/tests.
+        path = str(_user_db_path(uid) if uid is not None else DB_PATH)
+    else:
+        path = str(db_path)
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     # Set WAL mode only if not already set (avoids redundant writes)

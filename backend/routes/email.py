@@ -32,9 +32,22 @@ _local = threading.local()
 
 
 def _get_db():
-    if not hasattr(_local, 'conn') or _local.conn is None:
-        _local.conn = init_db()
-    return _local.conn
+    # Honor an explicitly-set connection (used directly by tests).
+    override = getattr(_local, 'conn', None)
+    if override is not None:
+        return override
+    # Otherwise keep one connection per user PER THREAD. Thread-local keeps each
+    # connection confined to one thread (SQLite-safe); keying by user id stops a
+    # pooled thread from serving user B with the connection it opened for user A.
+    from db import current_user_id
+    uid = current_user_id.get()
+    cache = getattr(_local, 'by_user', None)
+    if cache is None:
+        cache = _local.by_user = {}
+    conn = cache.get(uid)
+    if conn is None:
+        conn = cache[uid] = init_db()
+    return conn
 
 
 # ───────────────────────────────────────────────
@@ -604,7 +617,8 @@ def api_bulk_generate(req: BulkEmailRequest):
     total_eligible = len(post_ids)
     post_ids = post_ids[:MAX_BATCH]
 
-    threading.Thread(target=_bulk_generate_worker, args=(post_ids,), daemon=True).start()
+    from worker_ctx import current_uid, run_with_user
+    threading.Thread(target=run_with_user(current_uid(), _bulk_generate_worker, post_ids), daemon=True).start()
     msg = f"Generating emails for {len(post_ids)} posts/leads in background..."
     if total_eligible > MAX_BATCH:
         msg += f" ({total_eligible - MAX_BATCH} remaining for next batch)"
@@ -626,7 +640,8 @@ def api_bulk_send(req: BulkSendRequest):
             send_worker_state["running"] = False
         return {"status": "ok", "message": "No draft emails to send."}
 
-    threading.Thread(target=_bulk_send_worker, args=(req.attach_resume,), daemon=True).start()
+    from worker_ctx import current_uid, run_with_user
+    threading.Thread(target=run_with_user(current_uid(), _bulk_send_worker, req.attach_resume), daemon=True).start()
     return {"status": "started", "message": f"Sending {draft_count} emails in background...", "total": draft_count}
 
 
@@ -750,7 +765,8 @@ def api_check_bounces():
 def api_imap_start():
     """Start continuous IMAP polling."""
     from services.email_service import start_imap_polling
-    return start_imap_polling()
+    from worker_ctx import current_uid
+    return start_imap_polling(user_id=current_uid())
 
 @router.post("/api/email/imap-stop")
 def api_imap_stop():
@@ -780,6 +796,25 @@ def api_reclassify_replies():
     Run this after keyword patterns are updated to fix mis-classified replies."""
     from services.email_service import reclassify_replies
     return reclassify_replies()
+
+
+@router.post("/api/email/scan-offers")
+def api_scan_offers(since: str = "01-Apr-2026"):
+    """Scan the mailbox for job-offer emails and advance matching pipeline leads to 'offer'.
+    Matches by sender DOMAIN, so an offer from a different person at a known company
+    (e.g. an HR/founder address rather than the outreach address) is still detected.
+    Generic providers (gmail/outlook/…) and your own sent mail are excluded."""
+    from services.email_service import scan_offers
+    return scan_offers(since_date=since)
+
+
+@router.post("/api/email/scan-interviews")
+def api_scan_interviews(since: str = "01-Apr-2026"):
+    """Scan the mailbox for interview emails and advance matching leads to 'interviewing'.
+    Same domain-aware matching as scan-offers. Forward-only: never downgrades a lead
+    already at offer/rejected/interviewing."""
+    from services.email_service import scan_interviews
+    return scan_interviews(since_date=since)
 
 
 @router.get("/api/email/reply-breakdown")

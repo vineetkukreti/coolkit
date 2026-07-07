@@ -407,15 +407,24 @@ def _run_career_link_scraper(source_name, max_visits, on_event):
             pass
 
 
-def _scraper_coordinator(max_posts: int, sources: list[str]):
+def _scraper_coordinator(max_posts: int, sources: list[str], user_id=None):
     """Coordinator thread: launches all source scrapers in parallel where possible.
 
     LinkedIn-based sources (search, feed, hashtags, enricher, deepfetch) run SEQUENTIALLY on
     the browser thread (Playwright single-thread constraint).
     Web scrapers (google, wellfound, yc) run in PARALLEL with their own browsers.
+
+    `user_id` is the user who started the scrape; all scraped rows must land in
+    that user's DB. We set the context var on this coordinator thread and wrap
+    every child thread target with run_with_user (context vars don't propagate
+    into new threads).
     """
     import datetime as _dt
     from scrapers.web_scrapers import scrape_google, scrape_wellfound as scrape_wellfound_web, scrape_yc_jobs
+    from db import current_user_id
+    from worker_ctx import run_with_user
+
+    current_user_id.set(user_id)
 
     with _scraper_lock:
         scraper_state["running"] = True
@@ -467,7 +476,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
             def _browser_thread():
                 _run_on_browser_thread(_browser_sources_runner, timeout=14400)
 
-            t = threading.Thread(target=_browser_thread, daemon=True)
+            t = threading.Thread(target=run_with_user(user_id, _browser_thread), daemon=True)
             threads.append(t)
             t.start()
 
@@ -499,8 +508,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
                 budget = min(per_source, max_posts)
                 scraper_fn = api_source_map[source]
                 t = threading.Thread(
-                    target=_run_api_scraper,
-                    args=(source, scraper_fn, budget, on_event),
+                    target=run_with_user(user_id, _run_api_scraper, source, scraper_fn, budget, on_event),
                     daemon=True,
                 )
                 threads.append(t)
@@ -519,8 +527,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
                 on_event = _make_source_callback(source)
                 budget = min(per_source, max_posts)
                 t = threading.Thread(
-                    target=_run_api_scraper,
-                    args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_html(sk, p, c, max_posts, on_event), budget, on_event),
+                    target=run_with_user(user_id, _run_api_scraper, source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_html(sk, p, c, max_posts, on_event), budget, on_event),
                     daemon=True,
                 )
                 threads.append(t)
@@ -530,8 +537,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
                 on_event = _make_source_callback(source)
                 budget = min(per_source, max_posts)
                 t = threading.Thread(
-                    target=_run_api_scraper,
-                    args=(source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_api(sk, p, c, max_posts, on_event), budget, on_event),
+                    target=run_with_user(user_id, _run_api_scraper, source, lambda p, c, max_posts=budget, on_event=on_event, sk=source: scrape_generic_api(sk, p, c, max_posts, on_event), budget, on_event),
                     daemon=True,
                 )
                 threads.append(t)
@@ -567,8 +573,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
                 on_event = _make_source_callback(source)
                 budget = min(per_source, 50)
                 t = threading.Thread(
-                    target=_run_career_link_scraper,
-                    args=(source, budget, on_event),
+                    target=run_with_user(user_id, _run_career_link_scraper, source, budget, on_event),
                     daemon=True,
                 )
                 threads.append(t)
@@ -580,8 +585,7 @@ def _scraper_coordinator(max_posts: int, sources: list[str]):
             budget = min(per_source, max_posts)
             scraper_fn = web_source_map[source]
             t = threading.Thread(
-                target=_run_web_scraper,
-                args=(source, scraper_fn, budget, on_event),
+                target=run_with_user(user_id, _run_web_scraper, source, scraper_fn, budget, on_event),
                 daemon=True,
             )
             threads.append(t)

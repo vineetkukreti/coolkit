@@ -109,7 +109,7 @@ start_backend() {
 
     # Wait until it responds
     for i in $(seq 1 15); do
-        if curl -sf http://localhost:$BACKEND_PORT/api/db/stats > /dev/null 2>&1; then
+        if curl -sf http://localhost:$BACKEND_PORT/api/health > /dev/null 2>&1; then
             echo -e "  ${G}Backend ready!${NC}"
             return 0
         fi
@@ -161,7 +161,7 @@ sleep 1
 echo ""
 echo -e "${C}══════════════════════════════════════════════════${NC}"
 if [ "$MODE" != "--front" ]; then
-    echo -e "  ${B}API:${NC}       http://localhost:$BACKEND_PORT/api/db/stats"
+    echo -e "  ${B}API:${NC}       http://localhost:$BACKEND_PORT/api/health"
 fi
 if [ "$MODE" = "dev" ] || [ "$MODE" = "--front" ]; then
     echo -e "  ${B}Frontend:${NC}  http://localhost:$FRONTEND_PORT"

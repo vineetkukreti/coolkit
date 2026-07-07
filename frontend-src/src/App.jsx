@@ -5,6 +5,10 @@ import { ToastProvider } from './components/Toast'
 import ErrorBoundary from './components/ErrorBoundary'
 import BrowserBar from './components/BrowserBar'
 import { useLinkedInStatus } from './components/ConnectGate'
+import { AuthProvider } from './lib/auth'
+import ProtectedRoute from './components/ProtectedRoute'
+import Login from './pages/Login'
+import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import FindJobs from './pages/FindJobs'
 import ApplyPage from './pages/ApplyPage'
@@ -144,9 +148,22 @@ function AppShell() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <ToastProvider>
-        <AppShell />
-      </ToastProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <AppShell />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </ToastProvider>
+      </AuthProvider>
     </ErrorBoundary>
   )
 }

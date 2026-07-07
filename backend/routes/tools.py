@@ -19,9 +19,22 @@ _local = threading.local()
 
 
 def _get_db():
-    if not hasattr(_local, 'conn') or _local.conn is None:
-        _local.conn = init_db()
-    return _local.conn
+    # Honor an explicitly-set connection (used directly by tests).
+    override = getattr(_local, 'conn', None)
+    if override is not None:
+        return override
+    # Otherwise keep one connection per user PER THREAD. Thread-local keeps each
+    # connection confined to one thread (SQLite-safe); keying by user id stops a
+    # pooled thread from serving user B with the connection it opened for user A.
+    from db import current_user_id
+    uid = current_user_id.get()
+    cache = getattr(_local, 'by_user', None)
+    if cache is None:
+        cache = _local.by_user = {}
+    conn = cache.get(uid)
+    if conn is None:
+        conn = cache[uid] = init_db()
+    return conn
 
 
 def _read_clipboard_command():
@@ -433,7 +446,8 @@ def api_company_connections(req: dict):
 @router.post("/api/followup/auto-send")
 def api_followup_auto_send():
     from services.email_service import start_auto_followup
-    return start_auto_followup()
+    from worker_ctx import current_uid
+    return start_auto_followup(user_id=current_uid())
 
 @router.post("/api/followup/preview/{outreach_id}")
 def api_followup_preview(outreach_id: int):

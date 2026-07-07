@@ -14,9 +14,22 @@ _local = threading.local()
 
 
 def _get_db():
-    if not hasattr(_local, 'conn') or _local.conn is None:
-        _local.conn = init_db()
-    return _local.conn
+    # Honor an explicitly-set connection (used directly by tests).
+    override = getattr(_local, 'conn', None)
+    if override is not None:
+        return override
+    # Otherwise keep one connection per user PER THREAD. Thread-local keeps each
+    # connection confined to one thread (SQLite-safe); keying by user id stops a
+    # pooled thread from serving user B with the connection it opened for user A.
+    from db import current_user_id
+    uid = current_user_id.get()
+    cache = getattr(_local, 'by_user', None)
+    if cache is None:
+        cache = _local.by_user = {}
+    conn = cache.get(uid)
+    if conn is None:
+        conn = cache[uid] = init_db()
+    return conn
 
 
 # ───────────────────────────────────────────────

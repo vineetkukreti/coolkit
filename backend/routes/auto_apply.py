@@ -17,7 +17,8 @@ class AutoApplyRequest(BaseModel):
 
 @router.post("/api/auto-apply/start")
 def api_start_auto_apply(req: AutoApplyRequest):
-    result = start_auto_apply(max_applications=req.max_applications)
+    from worker_ctx import current_uid
+    result = start_auto_apply(max_applications=req.max_applications, user_id=current_uid())
     if "error" in result:
         return {"status": "error", "message": result["error"]}
     return result

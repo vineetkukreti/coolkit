@@ -1434,11 +1434,12 @@ def _auto_followup_worker():
         followup_worker_state["running"] = False
 
 
-def start_auto_followup():
+def start_auto_followup(user_id=None):
     """Start the auto-followup worker in a background thread."""
     if followup_worker_state["running"]:
         return {"status": "already_running"}
-    t = threading.Thread(target=_auto_followup_worker, daemon=True)
+    from worker_ctx import run_with_user
+    t = threading.Thread(target=run_with_user(user_id, _auto_followup_worker), daemon=True)
     t.start()
     return {"status": "started", "total": followup_worker_state.get("total", 0)}
 
@@ -1546,6 +1547,86 @@ def _classify_reply(body: str, subject: str = "") -> str:
     if any(p in text for p in reject_patterns):
         return "rejection"
 
+    # Offer patterns — a job offer is the highest-value reply. Checked AFTER rejection
+    # (so "unfortunately we are unable to offer you" stays a rejection) but BEFORE interest
+    # (so an offer isn't downgraded to a generic "interested").
+    #
+    # STRONG signals are unambiguous offers — return immediately.
+    strong_offer = [
+        "offer letter", "letter of offer", "offer of employment",
+        "offer of the position", "formal offer", "extend a formal offer",
+        "pleased to extend an offer", "happy to extend an offer",
+        "extend you an offer", "extend an offer", "extending an offer",
+        "compensation package", "your compensation will", "compensation figure",
+        "annual ctc", "your ctc", "ctc of", "ctc is", "fixed ctc", "ctc breakup",
+        "date of joining", "joining date", "tentative date of joining",
+        "onboarding formalities", "welcome aboard", "welcome to the team",
+        "welcome to the company", "glad to have you on board",
+        "release your offer", "released your offer", "rolling out your offer",
+        # Indian offer / pre-offer vocabulary (salary structure, intent/appointment letters)
+        "salary structure", "proposed salary structure", "revised salary structure",
+        "salary breakup", "salary break-up", "salary break up", "revised salary",
+        "house rent allowance", "letter of intent", "letter of appointment",
+        "letter of engagement", "(loi)", "(loe)",
+        # Founding / startup equity offer vocabulary (e.g. Diagnuvo Letter of Engagement)
+        "fully diluted", "equity:", "vesting", "esop", "stock options",
+        "founding ai engineer proposal", "following your acceptance of",
+    ]
+    if any(p in text for p in strong_offer):
+        return "offer"
+
+    # SOFT signals look like offers but could be "offer you an interview/call" —
+    # only treat as an offer when no interview-scheduling language is present.
+    soft_offer = [
+        "pleased to offer", "happy to offer", "delighted to offer",
+        "excited to offer", "glad to offer", "thrilled to offer",
+        "pleasure to offer", "would like to offer you", "we would like to offer",
+        "we are offering you", "offer you the position", "offer you the role",
+        "offer you this role", "offer you a position", "offer you the job",
+        "selected you for the position", "selected for the position",
+        "selected for the role", "you have been selected for",
+    ]
+    interviewish = [
+        "interview", "phone screen", "screening", "technical assessment",
+        "assessment", "coding challenge", "next round", "schedule a call",
+        "hop on a call", "quick call", "discussion round",
+    ]
+    if any(p in text for p in soft_offer) and not any(p in text for p in interviewish):
+        return "offer"
+    # "Congratulations" only counts as an offer alongside hiring/joining language
+    # (otherwise "congratulations, you advanced to the next round" is just interest).
+    if "congratulations" in text and any(
+        p in text for p in ("offer", "welcome aboard", "join our team", "joining", "onboard", "on board")
+    ):
+        return "offer"
+
+    # Interview patterns — a scheduled/invited interview, screen, assessment, or round.
+    # Checked AFTER offer/rejection but BEFORE generic interest so these advance a lead to
+    # the 'interviewing' stage rather than just 'replied'. Kept to high-confidence signals
+    # (vague "call"/"meet"/"discussion" stay under generic interest → 'replied').
+    interview_patterns = [
+        "interview", "phone screen", "phone interview", "telephonic interview",
+        "telephonic round", "video interview", "video call", "screening call",
+        "screening round", "technical round", "technical assessment", "technical discussion",
+        "coding challenge", "coding round", "coding test", "online assessment",
+        "aptitude test", "assessment round", "assessment link", "case study round",
+        "take home assignment", "take-home assignment",
+        "hr round", "hr discussion", "managerial round", "manager round",
+        "first round", "next round", "move to the next round", "advance to the next round",
+        "next steps in the process", "shortlisted", "shortlisting", "you have been shortlisted",
+        "invite you for an interview", "invite you to an interview", "invite you to interview",
+        "invitation to interview", "would like to invite you", "like to invite you",
+        "schedule an interview", "interview invitation", "interview has been scheduled",
+        "calendly", "calendar invite", "schedule a call", "set up a call", "set up a time",
+        "book a slot", "book a time", "pick a slot", "pick a time",
+        "your availability", "share your availability", "availability for",
+        "are you available", "let us know your availability",
+        "zoom meeting", "join zoom meeting", "google meet", "microsoft teams",
+        "ms teams", "teams meeting", "meeting link", "meeting invite",
+    ]
+    if any(p in text for p in interview_patterns):
+        return "interview"
+
     # Interest patterns — use word-boundary-aware matching to avoid false positives
     # e.g. "interested in career opportunities at Capital One?" is an auto-reply, not interest
     interest_patterns = [
@@ -1565,6 +1646,25 @@ def _classify_reply(body: str, subject: str = "") -> str:
         return "interested"
 
     return "info"
+
+
+# Stage progression ranking — higher rank wins. An offer is the best outcome and
+# overrides anything (including a prior misclassified rejection); a rejection beats
+# any in-progress stage. Forward-only: a lead is never moved to a lower rank by autospy.
+_STAGE_RANK = {"applied": 0, "outreach": 0, "replied": 1, "interviewing": 2, "rejected": 3, "offer": 4}
+
+
+def _stage_from_reply_type(reply_type: str | None) -> str:
+    """Map a classified reply_type to a pipeline stage."""
+    if reply_type == "rejection":
+        return "rejected"
+    if reply_type == "offer":
+        return "offer"
+    if reply_type == "interview":
+        return "interviewing"
+    if reply_type == "auto_reply":
+        return "applied"
+    return "replied"
 
 
 # ── IMAP Reply Detection Worker ───────────────────────────────────────────────
@@ -1831,12 +1931,15 @@ def _imap_check_replies(since_date=None, limit=500, folders=None):
                                         (outreach["id"],)
                                     ).fetchone()
 
-                                    if lead and lead["stage"] in ("applied", "outreach") and reply_type != "auto_reply":
-                                        new_stage = "rejected" if reply_type == "rejection" else "replied"
-                                        conn.execute(
-                                            "UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
-                                            (new_stage, lead["id"])
-                                        )
+                                    if lead and reply_type != "auto_reply":
+                                        new_stage = _stage_from_reply_type(reply_type)
+                                        # Forward-only: never downgrade a lead, but always
+                                        # let a detected offer/rejection advance it.
+                                        if _STAGE_RANK.get(new_stage, 0) > _STAGE_RANK.get(lead["stage"], 0):
+                                            conn.execute(
+                                                "UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
+                                                (new_stage, lead["id"])
+                                            )
                                         conn.execute(
                                             "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
                                             "VALUES (?, 'email_reply', ?, ?)",
@@ -1949,6 +2052,24 @@ def _imap_poll_worker(interval_minutes=5):
                     imap_worker_state["error"] = None
                 if found:
                     print(f"[IMAP] Check complete — {found} new replies/bounces detected")
+                # Domain-aware offer sweep — catches offers sent from a different person at a
+                # known company (e.g. an HR address ≠ the outreach address) that the per-recipient
+                # reply matcher cannot tie back to a lead.
+                try:
+                    offer_res = scan_offers()
+                    if offer_res.get("advanced"):
+                        print(f"[IMAP] Offer sweep — advanced {offer_res['advanced']} lead(s) to Offer")
+                except Exception as oe:
+                    print(f"[IMAP] Offer sweep error: {oe}")
+                # Domain-aware interview sweep — promotes leads to 'interviewing' when an
+                # interview/assessment/scheduling email arrives (incl. from a different sender
+                # at a known company). Forward-only, so it never touches offer/rejected leads.
+                try:
+                    intv_res = scan_interviews()
+                    if intv_res.get("advanced"):
+                        print(f"[IMAP] Interview sweep — advanced {intv_res['advanced']} lead(s) to Interviewing")
+                except Exception as ie:
+                    print(f"[IMAP] Interview sweep error: {ie}")
             except Exception as e:
                 print(f"[IMAP] Error during check: {e}")
                 with _imap_lock:
@@ -1965,11 +2086,16 @@ def _imap_poll_worker(interval_minutes=5):
         print("[IMAP] Polling stopped")
 
 
-def start_imap_polling(interval_minutes=5):
-    """Start IMAP polling in a background thread."""
+def start_imap_polling(interval_minutes=5, user_id=None):
+    """Start IMAP polling in a background thread for a specific user.
+
+    Replies are written to the triggering user's DB, so the worker carries that
+    user's context. There is one shared mailbox, so whoever starts polling owns
+    the replies that land in their DB while it runs."""
     if imap_worker_state["running"]:
         return {"status": "already_running", **imap_worker_state}
-    t = threading.Thread(target=_imap_poll_worker, args=(interval_minutes,), daemon=True)
+    from worker_ctx import run_with_user
+    t = threading.Thread(target=run_with_user(user_id, _imap_poll_worker, interval_minutes), daemon=True)
     t.start()
     return {"status": "started", "interval_minutes": interval_minutes}
 
@@ -2014,6 +2140,264 @@ def deep_scan_replies(since_date=None):
         return {"status": "error", "error": str(e)}
 
 
+def scan_offers(since_date="01-Apr-2026", folders=None):
+    """Scan the mailbox for job-offer emails and advance matching pipeline leads to 'offer'.
+
+    Unlike the reply-matcher (which only ties emails sent FROM the exact outreach address),
+    this matches an offer email to a lead by SENDER DOMAIN. So an offer that arrives from a
+    different person at the same company (e.g. ritika.kinger@acme.com when you outreached
+    careers@acme.com) is still detected — and it bypasses the reply_detected_at guard, so a
+    later offer in an already-replied thread is not missed.
+    """
+    # Generic mailbox providers carry NO company identity — matching an offer to a lead by
+    # one of these domains would tie unrelated people together (and tie your own gmail replies
+    # to every gmail-address lead). They must never participate in domain matching.
+    GENERIC_PROVIDERS = {
+        "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "hotmail.com",
+        "outlook.com", "live.com", "msn.com", "protonmail.com", "proton.me",
+        "icloud.com", "me.com", "mail.com", "aol.com", "yandex.com", "zoho.com",
+        "rediffmail.com",
+    }
+    own_addr = (IMAP_CONFIG["user"] or "").strip().lower()
+
+    conn = init_db()
+    leads = conn.execute(
+        "SELECT id, recipient_email, company, stage FROM pipeline_leads"
+    ).fetchall()
+    domain_map = {}
+    for l in leads:
+        em = (l["recipient_email"] or "").strip().lower()
+        if "@" in em:
+            dom = em.split("@")[1]
+            if dom in GENERIC_PROVIDERS:
+                continue  # skip gmail/outlook/etc. leads — domain is not a company signal
+            domain_map.setdefault(dom, []).append(dict(l))
+    if not domain_map:
+        conn.close()
+        return {"status": "ok", "offers_found": 0, "advanced": 0, "offers": []}
+
+    imap_user = IMAP_CONFIG["user"]
+    imap_pass = IMAP_CONFIG["password"]
+    if not imap_user or not imap_pass:
+        conn.close()
+        raise ValueError("IMAP credentials not configured (SMTP_USER/SMTP_PASSWORD)")
+
+    if folders is None:
+        folders = ["INBOX", "[Gmail]/All Mail"]
+
+    mail = imaplib.IMAP4_SSL(IMAP_CONFIG["host"], IMAP_CONFIG["port"], timeout=30)
+    mail.login(imap_user, imap_pass)
+
+    offers = []
+    advanced = 0
+    seen_leads = set()
+    try:
+        for folder in folders:
+            name = f'"{folder}"' if " " in folder else folder
+            try:
+                if mail.select(name, readonly=True)[0] != "OK":
+                    continue
+            except Exception:
+                continue
+
+            # Server-side candidate filter on offer-ish subject tokens to limit volume.
+            uids = set()
+            for key, val in [("SUBJECT", "offer"), ("SUBJECT", "joining"), ("SUBJECT", "salary"),
+                             ("SUBJECT", "engagement"), ("SUBJECT", "appointment")]:
+                try:
+                    typ, data = mail.uid("search", None, "SINCE", since_date, key, val)
+                    if typ == "OK" and data and data[0]:
+                        uids.update(data[0].split())
+                except Exception:
+                    continue
+
+            for uid in uids:
+                # Header-only first (cheap) — resolve sender domain before fetching the body.
+                typ, md = mail.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+                if typ != "OK" or not md or not md[0]:
+                    continue
+                hmsg = email_lib.message_from_bytes(md[0][1])
+                frm = _decode_header_value(hmsg.get("From", "")).lower()
+                # Skip mail YOU sent — your own replies quote the offer text and would
+                # otherwise be (mis)classified as offers received.
+                if own_addr and own_addr in frm:
+                    continue
+                dm = re.search(r'@([a-z0-9.\-]+)', frm)
+                if not dm or dm.group(1) in GENERIC_PROVIDERS:
+                    continue
+                matched = domain_map.get(dm.group(1))
+                if not matched:
+                    continue
+
+                subject = _decode_header_value(hmsg.get("Subject", ""))
+                typ, fd = mail.uid("fetch", uid, "(RFC822)")
+                if typ != "OK" or not fd or not fd[0]:
+                    continue
+                fmsg = email_lib.message_from_bytes(fd[0][1])
+                body = _extract_email_body(fmsg)
+                if _classify_reply(body, subject) != "offer":
+                    continue
+
+                advanced_ids = []
+                for lead in matched:
+                    if lead["id"] in seen_leads or lead["stage"] == "offer":
+                        continue
+                    conn.execute(
+                        "UPDATE pipeline_leads SET stage = 'offer', updated_at = datetime('now') WHERE id = ?",
+                        (lead["id"],),
+                    )
+                    conn.execute(
+                        "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                        "VALUES (?, 'stage_change', ?, ?)",
+                        (lead["id"], "Offer detected → Offer",
+                         f"Offer email from {frm[:80]} — subject: {subject[:140]}"),
+                    )
+                    seen_leads.add(lead["id"])
+                    lead["stage"] = "offer"
+                    advanced += 1
+                    advanced_ids.append(lead["id"])
+                offers.append({"from": frm, "subject": subject, "advanced_leads": advanced_ids,
+                               "matched_leads": [l["id"] for l in matched]})
+                conn.commit()
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+    conn.close()
+    return {"status": "ok", "offers_found": len(offers), "advanced": advanced, "offers": offers}
+
+
+def scan_interviews(since_date="01-Apr-2026", folders=None):
+    """Scan the mailbox for interview emails and advance matching pipeline leads to 'interviewing'.
+
+    Same domain-aware matching as scan_offers(): an interview invite/assessment/scheduling
+    email from a different person at a known company (HR/recruiter address ≠ the outreach
+    address) is tied to the lead by sender DOMAIN. Forward-only via _STAGE_RANK — it never
+    downgrades a lead already at offer/rejected/interviewing, only promotes applied/replied.
+    Generic mailbox providers and your own sent mail are excluded.
+    """
+    GENERIC_PROVIDERS = {
+        "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "hotmail.com",
+        "outlook.com", "live.com", "msn.com", "protonmail.com", "proton.me",
+        "icloud.com", "me.com", "mail.com", "aol.com", "yandex.com", "zoho.com",
+        "rediffmail.com",
+    }
+    own_addr = (IMAP_CONFIG["user"] or "").strip().lower()
+
+    conn = init_db()
+    leads = conn.execute(
+        "SELECT id, recipient_email, company, stage FROM pipeline_leads"
+    ).fetchall()
+    domain_map = {}
+    for l in leads:
+        em = (l["recipient_email"] or "").strip().lower()
+        if "@" in em:
+            dom = em.split("@")[1]
+            if dom in GENERIC_PROVIDERS:
+                continue
+            domain_map.setdefault(dom, []).append(dict(l))
+    if not domain_map:
+        conn.close()
+        return {"status": "ok", "interviews_found": 0, "advanced": 0, "interviews": []}
+
+    imap_user = IMAP_CONFIG["user"]
+    imap_pass = IMAP_CONFIG["password"]
+    if not imap_user or not imap_pass:
+        conn.close()
+        raise ValueError("IMAP credentials not configured (SMTP_USER/SMTP_PASSWORD)")
+
+    if folders is None:
+        folders = ["INBOX", "[Gmail]/All Mail"]
+
+    target_rank = _STAGE_RANK["interviewing"]
+    mail = imaplib.IMAP4_SSL(IMAP_CONFIG["host"], IMAP_CONFIG["port"], timeout=30)
+    mail.login(imap_user, imap_pass)
+
+    interviews = []
+    advanced = 0
+    seen_leads = set()
+    try:
+        for folder in folders:
+            name = f'"{folder}"' if " " in folder else folder
+            try:
+                if mail.select(name, readonly=True)[0] != "OK":
+                    continue
+            except Exception:
+                continue
+
+            uids = set()
+            for key, val in [("SUBJECT", "interview"), ("SUBJECT", "shortlist"),
+                             ("SUBJECT", "assessment"), ("SUBJECT", "screening"),
+                             ("SUBJECT", "round"), ("SUBJECT", "availability"),
+                             ("SUBJECT", "schedule"), ("SUBJECT", "invitation"),
+                             ("SUBJECT", "meeting")]:
+                try:
+                    typ, data = mail.uid("search", None, "SINCE", since_date, key, val)
+                    if typ == "OK" and data and data[0]:
+                        uids.update(data[0].split())
+                except Exception:
+                    continue
+
+            for uid in uids:
+                typ, md = mail.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+                if typ != "OK" or not md or not md[0]:
+                    continue
+                hmsg = email_lib.message_from_bytes(md[0][1])
+                frm = _decode_header_value(hmsg.get("From", "")).lower()
+                if own_addr and own_addr in frm:
+                    continue
+                dm = re.search(r'@([a-z0-9.\-]+)', frm)
+                if not dm or dm.group(1) in GENERIC_PROVIDERS:
+                    continue
+                matched = domain_map.get(dm.group(1))
+                if not matched:
+                    continue
+                # Cheap exit: skip if every matching lead is already at/after interviewing.
+                if all(_STAGE_RANK.get(l["stage"], 0) >= target_rank for l in matched):
+                    continue
+
+                subject = _decode_header_value(hmsg.get("Subject", ""))
+                typ, fd = mail.uid("fetch", uid, "(RFC822)")
+                if typ != "OK" or not fd or not fd[0]:
+                    continue
+                fmsg = email_lib.message_from_bytes(fd[0][1])
+                body = _extract_email_body(fmsg)
+                if _classify_reply(body, subject) != "interview":
+                    continue
+
+                advanced_ids = []
+                for lead in matched:
+                    if lead["id"] in seen_leads:
+                        continue
+                    if _STAGE_RANK.get(lead["stage"], 0) >= target_rank:
+                        continue  # forward-only — don't downgrade offer/rejected/interviewing
+                    conn.execute(
+                        "UPDATE pipeline_leads SET stage = 'interviewing', updated_at = datetime('now') WHERE id = ?",
+                        (lead["id"],),
+                    )
+                    conn.execute(
+                        "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                        "VALUES (?, 'stage_change', ?, ?)",
+                        (lead["id"], "Interview detected → Interviewing",
+                         f"Interview email from {frm[:80]} — subject: {subject[:140]}"),
+                    )
+                    seen_leads.add(lead["id"])
+                    lead["stage"] = "interviewing"
+                    advanced += 1
+                    advanced_ids.append(lead["id"])
+                interviews.append({"from": frm, "subject": subject, "advanced_leads": advanced_ids,
+                                   "matched_leads": [l["id"] for l in matched]})
+                conn.commit()
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+    conn.close()
+    return {"status": "ok", "interviews_found": len(interviews), "advanced": advanced, "interviews": interviews}
+
+
 def reclassify_replies():
     """Re-run classification on all existing replies with updated keywords.
 
@@ -2035,16 +2419,22 @@ def reclassify_replies():
                 "UPDATE email_outreach SET reply_type = ? WHERE id = ?",
                 (new_type, row["id"])
             )
-            # Update pipeline stage if rejection was missed
-            if new_type == "rejection":
-                lead = conn.execute(
-                    "SELECT id, stage FROM pipeline_leads WHERE outreach_id = ?", (row["id"],)
-                ).fetchone()
-                if lead and lead["stage"] in ("applied", "replied", "outreach"):
-                    conn.execute(
-                        "UPDATE pipeline_leads SET stage = 'rejected', updated_at = datetime('now') WHERE id = ?",
-                        (lead["id"],)
-                    )
+            # Advance the pipeline stage if a stronger signal (rejection/offer/...) was missed.
+            # Forward-only via _STAGE_RANK so a lead is never silently downgraded.
+            new_stage = _stage_from_reply_type(new_type)
+            lead = conn.execute(
+                "SELECT id, stage FROM pipeline_leads WHERE outreach_id = ?", (row["id"],)
+            ).fetchone()
+            if lead and _STAGE_RANK.get(new_stage, 0) > _STAGE_RANK.get(lead["stage"], 0):
+                conn.execute(
+                    "UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
+                    (new_stage, lead["id"])
+                )
+                conn.execute(
+                    "INSERT INTO pipeline_events (lead_id, event_type, title, content) VALUES (?, 'stage_change', ?, ?)",
+                    (lead["id"], f"Reclassified → {new_stage.title()}",
+                     f"Reply re-classified as {new_type}"),
+                )
             changed += 1
 
     conn.commit()

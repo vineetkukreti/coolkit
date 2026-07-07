@@ -1,7 +1,8 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Search, Zap, Mail, GitBranch, BarChart3, Sparkles, Settings, Brain, Terminal,
+  LayoutDashboard, Search, Zap, Mail, GitBranch, BarChart3, Sparkles, Settings, Brain, Terminal, LogOut,
 } from 'lucide-react'
+import { useAuth } from '../lib/auth'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -39,6 +40,14 @@ function NavItem({ to, icon: Icon, label }) {
 }
 
 export default function Sidebar() {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
+
   return (
     <aside className="w-60 min-h-screen bg-bg-secondary border-r border-border flex flex-col px-4 py-6 shrink-0">
       <div className="flex items-center gap-2.5 mb-6 px-2">
@@ -53,6 +62,19 @@ export default function Sidebar() {
       </nav>
       <div className="h-px bg-border my-3" />
       <NavItem to="/settings" icon={Settings} label="Settings" />
+      {user && (
+        <div className="mt-2 px-3 pt-2">
+          <p className="text-xs text-fg-muted truncate mb-2" title={user.email}>{user.email}</p>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2.5 w-full px-0 py-1 rounded-lg text-sm text-fg-secondary
+              hover:text-danger transition-colors"
+          >
+            <LogOut size={18} className="text-fg-muted" />
+            Log out
+          </button>
+        </div>
+      )}
     </aside>
   )
 }

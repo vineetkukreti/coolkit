@@ -128,8 +128,59 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # ───────────────────────────────────────────────
+# Authentication — gate every /api/* call and set the per-user DB context
+# ───────────────────────────────────────────────
+
+import db as _db
+from auth import decode_token
+
+# Paths under /api that do NOT require authentication.
+_AUTH_EXEMPT_PREFIXES = ("/api/auth/", "/api/health")
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Non-API paths (static frontend) and CORS preflight pass straight through.
+    if not path.startswith("/api/") or request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Public auth endpoints (register/login) need no token.
+    if any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+        return await call_next(request)
+
+    # Everything else requires a valid Bearer token.
+    header = request.headers.get("Authorization", "")
+    token = header[7:].strip() if header.lower().startswith("bearer ") else ""
+    payload = decode_token(token) if token else None
+    if not payload:
+        return JSONResponse(status_code=401, content={"status": "error", "message": "Not authenticated"})
+
+    try:
+        uid = int(payload["sub"])
+    except (KeyError, ValueError, TypeError):
+        return JSONResponse(status_code=401, content={"status": "error", "message": "Invalid token"})
+
+    # Set the per-user DB context for the duration of the request. Starlette runs
+    # the (sync) route in this same task context, so anyio copies the var into the
+    # threadpool worker — every init_db() in the request resolves this user's DB.
+    ctx_token = _db.current_user_id.set(uid)
+    try:
+        return await call_next(request)
+    finally:
+        _db.current_user_id.reset(ctx_token)
+
+
+# ───────────────────────────────────────────────
 # Log viewer API — see errors from the UI
 # ───────────────────────────────────────────────
+
+@app.get("/api/health")
+def api_health():
+    """Public, unauthenticated readiness probe (used by run.sh / deploy checks)."""
+    return {"status": "ok"}
+
 
 @app.get("/api/logs")
 def api_get_logs(level: str = "", limit: int = 100, search: str = ""):
@@ -204,7 +255,9 @@ from routes.tools import router as tools_router
 from routes.auto_apply import router as auto_apply_router
 from routes.skills_intel import router as skills_intel_router
 from routes.orchestrator import router as orchestrator_router
+from routes.auth import router as auth_router
 
+app.include_router(auth_router)
 app.include_router(jobs_router)
 app.include_router(browser_router)
 app.include_router(posts_router)
@@ -224,18 +277,11 @@ app.include_router(orchestrator_router)
 
 @app.on_event("startup")
 def _start_imap_polling():
-    """Start IMAP reply detection polling when server starts."""
-    try:
-        from services.email_service import start_imap_polling
-        smtp_user = os.getenv("SMTP_USER", "")
-        smtp_pass = os.getenv("SMTP_PASSWORD", "")
-        if smtp_user and smtp_pass:
-            start_imap_polling(interval_minutes=5)
-            print(f"[IMAP] Reply detection started — polling every 5 minutes")
-        else:
-            print("[IMAP] Skipped — no SMTP credentials configured")
-    except Exception as e:
-        print(f"[IMAP] Failed to start: {e}")
+    """IMAP reply detection is per-user in multi-user mode and cannot run at
+    startup (there is no logged-in user, and replies must be written to a
+    specific user's DB). It is started on demand once a user triggers it from
+    the app (see routes/email.py). Auto-start is intentionally disabled."""
+    print("[IMAP] Auto-start disabled (multi-user mode) — reply polling starts per-user on demand")
 
 # ───────────────────────────────────────────────
 # Graceful shutdown for background workers

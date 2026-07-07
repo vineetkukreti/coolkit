@@ -969,7 +969,7 @@ class AutoApplyEngine:
                 on_complete(auto_apply_state["progress"])
 
 
-def start_auto_apply(max_applications: int = 500):
+def start_auto_apply(max_applications: int = 500, user_id=None):
     """Start auto-apply in a background thread."""
     with _apply_lock:
         if auto_apply_state["running"]:
@@ -977,11 +977,12 @@ def start_auto_apply(max_applications: int = 500):
         auto_apply_state["running"] = True
 
     from services.browser_service import browser_state
+    from worker_ctx import run_with_user
 
     page = browser_state.get("page")
 
     def _auto_apply_thread():
-        conn = init_db()
+        conn = init_db()  # resolves the triggering user's DB (context set below)
         engine = AutoApplyEngine(conn, page=page)
         try:
             engine.run(max_applications)
@@ -989,7 +990,7 @@ def start_auto_apply(max_applications: int = 500):
             conn.close()
 
     t = threading.Thread(
-        target=_auto_apply_thread,
+        target=run_with_user(user_id, _auto_apply_thread),
         daemon=True,
     )
     t.start()

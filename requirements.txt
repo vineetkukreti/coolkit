@@ -15,3 +15,6 @@ dnspython
 duckduckgo-search
 googlesearch-python
 scrapling[fetchers]
+PyJWT
+bcrypt
+pytest

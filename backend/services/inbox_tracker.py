@@ -44,15 +44,36 @@ REJECTION_PATTERNS = [
     "we regret", "not able to move forward",
 ]
 
+OFFER_PATTERNS = [
+    "offer letter", "letter of offer", "offer of employment",
+    "pleased to offer", "happy to offer", "delighted to offer",
+    "excited to offer", "we would like to offer", "would like to offer you",
+    "extend an offer", "extend a formal offer", "formal offer",
+    "offer you the position", "offer you the role",
+    "compensation package", "compensation figure", "annual ctc", "your ctc", "ctc of",
+    "date of joining", "joining date", "welcome aboard",
+    "welcome to the team", "you have been selected for",
+    "release your offer", "rolling out your offer",
+    # Indian offer / pre-offer vocabulary
+    "salary structure", "proposed salary structure", "revised salary",
+    "salary breakup", "house rent allowance", "letter of intent",
+    "letter of appointment", "letter of engagement", "(loi)", "(loe)",
+    # Founding / startup equity offer vocabulary
+    "fully diluted", "vesting", "esop", "stock options",
+]
+
 INTERVIEW_PATTERNS = [
-    "schedule an interview", "interview invitation",
-    "like to schedule", "book a time",
-    "phone screen", "video interview",
-    "technical assessment", "coding challenge",
-    "meet the team", "next steps in the process",
-    "we'd like to invite you", "love to chat",
-    "availability for", "calendly", "schedule a call",
+    "schedule an interview", "interview invitation", "interview",
+    "like to schedule", "book a time", "book a slot",
+    "phone screen", "phone interview", "video interview", "video call",
+    "technical assessment", "technical round", "coding challenge", "coding round",
+    "online assessment", "aptitude test", "assessment round",
+    "meet the team", "next steps in the process", "next round", "first round",
+    "we'd like to invite you", "would like to invite you", "love to chat",
+    "availability for", "your availability", "calendly", "schedule a call",
     "hiring manager would like", "round of interviews",
+    "shortlisted", "shortlisting", "hr round", "managerial round",
+    "zoom meeting", "google meet", "ms teams", "teams meeting",
 ]
 
 # Companies that send automated application emails (from career portals)
@@ -107,9 +128,14 @@ def classify_inbox_email(subject: str, body: str, from_addr: str) -> dict:
     # Check if it's from a career portal
     is_career_portal = any(p in from_lower for p in CAREER_PORTAL_SENDERS)
 
-    # Check patterns (order matters: rejection > interview > confirmation)
+    # Check patterns (order matters: rejection > offer > interview > confirmation).
+    # Rejection first so "unable to offer" isn't mistaken for an offer; offer before
+    # interview so an offer email isn't downgraded to an interview invite.
     if any(p in text for p in REJECTION_PATTERNS):
         return {"type": "rejection", "confidence": "high" if sum(1 for p in REJECTION_PATTERNS if p in text) >= 2 else "medium"}
+
+    if any(p in text for p in OFFER_PATTERNS):
+        return {"type": "offer", "confidence": "high" if sum(1 for p in OFFER_PATTERNS if p in text) >= 2 else "medium"}
 
     if any(p in text for p in INTERVIEW_PATTERNS):
         return {"type": "interview", "confidence": "high" if sum(1 for p in INTERVIEW_PATTERNS if p in text) >= 2 else "medium"}
@@ -181,7 +207,7 @@ def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
         msg_ids = list(reversed(msg_ids[-limit:]))
 
         results = []
-        updated = {"confirmations": 0, "rejections": 0, "interviews": 0}
+        updated = {"confirmations": 0, "rejections": 0, "interviews": 0, "offers": 0}
 
         for msg_id in msg_ids:
             try:
@@ -211,7 +237,7 @@ def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
 
                 classification = classify_inbox_email(subject, body, from_addr)
 
-                if classification["type"] in ("rejection", "interview", "confirmation"):
+                if classification["type"] in ("rejection", "offer", "interview", "confirmation"):
                     # Try to match to an application
                     matched_app = _match_to_application(conn, from_addr, subject, body)
 
@@ -234,6 +260,10 @@ def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
                         elif classification["type"] == "interview":
                             conn.execute("UPDATE applications SET status = 'interviewing' WHERE id = ? AND status = 'applied'", (app_id,))
                             updated["interviews"] += 1
+                        elif classification["type"] == "offer":
+                            # applications.status has no 'offer' value (CHECK constraint),
+                            # so the offer is reflected on the pipeline lead only.
+                            updated["offers"] += 1
                         elif classification["type"] == "confirmation":
                             updated["confirmations"] += 1
 
@@ -241,6 +271,12 @@ def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
                         if classification["type"] == "rejection":
                             conn.execute(
                                 "UPDATE pipeline_leads SET stage = 'rejected', updated_at = datetime('now') WHERE post_id = ? AND stage = 'applied'",
+                                (matched_app.get("post_id"),)
+                            )
+                        elif classification["type"] == "offer":
+                            # An offer is the top outcome — advance from any non-offer stage.
+                            conn.execute(
+                                "UPDATE pipeline_leads SET stage = 'offer', updated_at = datetime('now') WHERE post_id = ? AND stage != 'offer'",
                                 (matched_app.get("post_id"),)
                             )
                         elif classification["type"] == "interview":

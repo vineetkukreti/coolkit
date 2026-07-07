@@ -1,22 +1,47 @@
 const BASE = (import.meta.env.VITE_API_URL || '') + '/api'
 
+const TOKEN_KEY = 'careerkit_token'
+
+export const tokenStore = {
+  get: () => localStorage.getItem(TOKEN_KEY),
+  set: (t) => localStorage.setItem(TOKEN_KEY, t),
+  clear: () => localStorage.removeItem(TOKEN_KEY),
+}
+
 async function request(path, options = {}) {
   const headers = { ...options.headers }
   if (options.body) {
     headers['Content-Type'] = 'application/json'
   }
+  const token = tokenStore.get()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
   const res = await fetch(`${BASE}${path}`, {
     headers,
     ...options,
   })
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    // Token missing/expired — drop it and bounce to login.
+    tokenStore.clear()
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
+    throw new Error('Session expired — please log in again.')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || 'Request failed')
+    throw new Error(err.detail || err.message || 'Request failed')
   }
   return res.json()
 }
 
 export const api = {
+  // Auth
+  register: (data) => request('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  login: (data) => request('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  me: () => request('/auth/me'),
+
   // Profile & stats
   getProfile: () => request('/profile'),
   getStats: () => request('/stats'),

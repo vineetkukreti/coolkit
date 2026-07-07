@@ -17,9 +17,22 @@ _local = threading.local()
 
 
 def _get_db():
-    if not hasattr(_local, 'conn') or _local.conn is None:
-        _local.conn = init_db()
-    return _local.conn
+    # Honor an explicitly-set connection (used directly by tests).
+    override = getattr(_local, 'conn', None)
+    if override is not None:
+        return override
+    # Otherwise keep one connection per user PER THREAD. Thread-local keeps each
+    # connection confined to one thread (SQLite-safe); keying by user id stops a
+    # pooled thread from serving user B with the connection it opened for user A.
+    from db import current_user_id
+    uid = current_user_id.get()
+    cache = getattr(_local, 'by_user', None)
+    if cache is None:
+        cache = _local.by_user = {}
+    conn = cache.get(uid)
+    if conn is None:
+        conn = cache[uid] = init_db()
+    return conn
 
 
 # ───────────────────────────────────────────────
@@ -27,6 +40,11 @@ def _get_db():
 # ───────────────────────────────────────────────
 
 PIPELINE_STAGES = ["applied", "replied", "interviewing", "offer", "rejected"]
+
+# Stage progression ranking — higher rank wins. Offer is the best outcome and overrides
+# everything; rejection beats any in-progress stage. Used for forward-only auto-sync so a
+# lead is never silently downgraded, but a detected offer always advances it.
+STAGE_RANK = {"applied": 0, "replied": 1, "interviewing": 2, "rejected": 3, "offer": 4}
 
 
 # ───────────────────────────────────────────────
@@ -99,6 +117,10 @@ def _stage_from_email(email_status: str, reply_type: str | None = None) -> str:
     if email_status == "replied":
         if reply_type == "rejection":
             return "rejected"
+        if reply_type == "offer":
+            return "offer"
+        if reply_type == "interview":
+            return "interviewing"
         if reply_type == "auto_reply":
             return "applied"
         return "replied"
@@ -406,7 +428,9 @@ def api_pipeline_sync():
 
             if status == "replied" and row.get("reply_type") and row.get("reply_type") != "auto_reply":
                 new_stage = _stage_from_email(status, row.get("reply_type"))
-                if duplicate["stage"] == "applied" and new_stage != duplicate["stage"]:
+                # Forward-only: advance the lead whenever the reply implies a higher stage
+                # (e.g. an offer landing on an already-interviewing lead), never downgrade.
+                if STAGE_RANK.get(new_stage, 0) > STAGE_RANK.get(duplicate["stage"], 0):
                     db_conn.execute(
                         "UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
                         (new_stage, duplicate["id"]),
@@ -448,20 +472,25 @@ def api_pipeline_sync():
 
         inserted += 1
 
-    # 2. Sync stale pipeline stages — update leads where email_outreach has newer status
+    # 2. Sync stale pipeline stages — advance any lead whose linked email has a reply that
+    #    implies a higher stage than the lead currently sits at (forward-only). Not limited
+    #    to 'applied' leads, so an offer landing after a reply/interview still advances.
     stale = db_conn.execute(
         """SELECT pl.id, pl.stage, eo.id as outreach_id, eo.status as email_status,
                   eo.reply_type, eo.reply_preview
            FROM pipeline_leads pl
            JOIN email_outreach eo ON eo.id = pl.outreach_id
            WHERE eo.status = 'replied'
-             AND pl.stage = 'applied'
              AND eo.reply_type IS NOT NULL
              AND eo.reply_type != 'auto_reply'"""
     ).fetchall()
 
     for row in stale:
-        new_stage = "rejected" if row["reply_type"] == "rejection" else "replied"
+        new_stage = _stage_from_email("replied", row["reply_type"])
+        if STAGE_RANK.get(new_stage, 0) <= STAGE_RANK.get(row["stage"], 0):
+            # Lead already at or beyond this stage — just ensure the reply event exists.
+            _insert_reply_event_once(db_conn, row["id"], row["outreach_id"], row["reply_type"], row["reply_preview"])
+            continue
         db_conn.execute(
             "UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
             (new_stage, row["id"])
