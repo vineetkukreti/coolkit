@@ -54,7 +54,7 @@ export default function Sidebar() {
         <div className="w-9 h-9 bg-accent rounded-lg flex items-center justify-center">
           <span className="text-fg-inverse font-bold text-sm">CK</span>
         </div>
-        <span className="text-lg font-bold text-fg-primary">CareerKit</span>
+        <span className="text-lg font-bold text-fg-primary">coolkit</span>
       </div>
       <div className="h-px bg-border mb-4" />
       <nav className="flex flex-col gap-0.5 flex-1">

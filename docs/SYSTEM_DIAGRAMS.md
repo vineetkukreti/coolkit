@@ -1,4 +1,4 @@
-# CareerKit — System Diagrams
+# coolkit — System Diagrams
 
 > Visual reference for all major system flows, state machines, and architecture.
 > All diagrams use Mermaid syntax.

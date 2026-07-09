@@ -149,7 +149,7 @@ def api_paste_extract(req: PasteExtractRequest):
     """
     import re
     from extractors.pipeline import process_single_post
-    from extractors.fitness import is_good_fit, experience_to_years
+    from extractors.fitness import is_good_fit
     from extractors.text import parse_relative_time
 
     raw_text = req.raw_text.strip()
@@ -221,13 +221,8 @@ def api_paste_extract(req: PasteExtractRequest):
             result["index"] = i
             role = result.pop("role_hiring_for", "")
             result["role"] = role
-            # Fitness check: >3yr min experience → bank, location must be India/Remote
+            # Fitness check: role relevance + experience (single source of truth in is_good_fit)
             fit, fit_reason = is_good_fit(role, result.get("experience", ""))
-            if fit:
-                min_yr, _ = experience_to_years(result.get("experience", ""))
-                if min_yr is not None and min_yr > 3:
-                    fit = False
-                    fit_reason = f"exp-too-high:{min_yr}yr+"
             # Location filter: only India cities + Remote are eligible
             if fit:
                 loc = (result.get("location") or "").lower()

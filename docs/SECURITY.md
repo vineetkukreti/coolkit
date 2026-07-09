@@ -1,4 +1,4 @@
-# CareerKit -- Security
+# coolkit -- Security
 
 > Credential management, sensitive data handling, and security considerations for contributors and users.
 
@@ -48,7 +48,7 @@ The server validates these at startup and logs warnings if any are missing (see 
 
 ## Browser Profile Security
 
-CareerKit uses a persistent Playwright browser profile stored in `data/browser_profiles/`. This directory contains LinkedIn session cookies. If this directory is leaked or shared:
+coolkit uses a persistent Playwright browser profile stored in `data/browser_profiles/`. This directory contains LinkedIn session cookies. If this directory is leaked or shared:
 
 - An attacker gains full access to the associated LinkedIn account.
 - They can read messages, connections, and profile data.
@@ -74,7 +74,7 @@ This data is privacy-sensitive. The database file is gitignored and should never
 
 ## Anti-Detection and Ethics
 
-CareerKit is designed for personal use by a single job seeker, not for mass scraping or spamming. The following measures enforce responsible usage:
+coolkit is designed for personal use by a single job seeker, not for mass scraping or spamming. The following measures enforce responsible usage:
 
 - **Headed browser**: All Playwright automation runs in a visible browser window. No headless mode.
 - **Human-like delays**: Random delays between actions (typically 2-5 seconds, configurable per platform in `services/auto_apply.py`).

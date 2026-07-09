@@ -1,4 +1,4 @@
-# CareerKit -- Database Schema
+# coolkit -- Database Schema
 
 > SQLite database schema, relationships, queries, and data management.
 

@@ -1,8 +1,8 @@
-# CareerKit
+# coolkit
 
 Full-stack job hunting automation -- scrapes 140+ sources, LLM-powered extraction, smart scoring, auto-apply, and cold email outreach with a React dashboard.
 
-## What Is CareerKit?
+## What Is coolkit?
 
 - **Multi-source scraping** across 141 job boards, ATS platforms, and LinkedIn -- four engine types (API, HTML, Browser, LinkedIn) cover everything from RemoteOK to Greenhouse to regional boards in India, Japan, Europe, UAE, Singapore, and the US.
 - **LLM extraction chain** (Ollama local -> Gemini API -> regex fallback) turns unstructured post text into structured job records: role, company, location, experience, domain relevance.

@@ -39,7 +39,7 @@ export default function Register() {
           <div className="w-10 h-10 bg-accent rounded-lg flex items-center justify-center">
             <span className="text-fg-inverse font-bold">CK</span>
           </div>
-          <span className="text-xl font-bold text-fg-primary">CareerKit</span>
+          <span className="text-xl font-bold text-fg-primary">coolkit</span>
         </div>
 
         <div className="bg-bg-secondary border border-border rounded-2xl p-6">

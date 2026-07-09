@@ -6,13 +6,15 @@ import re
 # Roles that ARE relevant (whitelist)
 KEEP_ROLES = [
     "ai engineer", "ml engineer", "machine learning engineer",
-    "genai engineer", "generative ai", "llm engineer",
-    "deep learning engineer",
+    "genai engineer", "generative ai", "llm engineer", "llm", "nlp",
+    "deep learning engineer", "computer vision",
     "ai/ml", "ai & ml", "artificial intelligence",
     "ai researcher", "applied scientist",
     "mlops", "ml ops",
     "agentic ai", "ai agent", "agent developer", "autonomous agent",
     "multi-agent", "agent framework",
+    "ai backend", "backend ai", "ai full stack", "full stack ai",
+    "cv engineer",
     "clinical ai", "healthcare ai", "medical ai", "health ai",
     "biomedical ai", "clinical ml",
     # Python developer roles
@@ -38,17 +40,52 @@ FALSE_POSITIVE_ROLES = [
     "data scientist", "data science", "data analyst", "data analytics",
     "business analyst", "analytics engineer", "bi analyst",
     "data engineer", "etl engineer", "data architect", "data platform",
-    "nlp engineer", "computer vision", "cv engineer",
     "research analyst", "statistician",
 ]
 
 
 def is_relevant_role(role: str) -> bool:
-    """Check if the role is relevant to the user's AI/ML profile."""
+    """Check if the role is relevant to the user's AI/ML profile.
+
+    Direct keep-list matches are checked first. As a fallback, any role that
+    contains a core AI/ML term (ai, ml, llm, nlp, cv, genai, machine learning,
+    computer vision, deep learning) together with an engineering/research term
+    is considered relevant, unless it also contains a strong non-technical
+    false-positive signal.
+    """
     role_lower = role.lower()
+
+    # 1. Explicit keep-list matches (e.g. "AI Engineer", "MLOps Engineer")
+    if any(keep in role_lower for keep in KEEP_ROLES):
+        return True
+
+    # 2. Generic AI/ML + role-term fallback for compound titles like
+    #    "AI Backend Engineer", "Python AI Developer", "LLM Research Scientist".
+    has_core = bool(
+        re.search(r'\b(ai|ml|llm|nlp|cv|genai)\b', role_lower)
+        or 'machine learning' in role_lower
+        or 'computer vision' in role_lower
+        or 'deep learning' in role_lower
+        or 'artificial intelligence' in role_lower
+    )
+    has_role = bool(re.search(r'\b(engineer|developer|scientist|researcher|specialist|architect)\b', role_lower))
+
+    if has_core and has_role:
+        strong_fps = [
+            'product manager', 'project manager', 'program manager',
+            'sales', 'marketing', 'business development',
+            'hr ', 'human resources', 'recruiter', 'talent',
+            'nurse', 'doctor', 'physician', 'therapist',
+        ]
+        if any(fp in role_lower for fp in strong_fps):
+            return False
+        return True
+
+    # 3. Explicit false-positive list (e.g. "Java Developer", "Data Scientist")
     if any(fp in role_lower for fp in FALSE_POSITIVE_ROLES):
         return False
-    return any(keep in role_lower for keep in KEEP_ROLES)
+
+    return False
 
 
 def experience_to_years(exp: str) -> tuple[int | None, int | None]:

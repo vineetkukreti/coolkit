@@ -1,6 +1,6 @@
 const BASE = (import.meta.env.VITE_API_URL || '') + '/api'
 
-const TOKEN_KEY = 'careerkit_token'
+const TOKEN_KEY = 'coolkit_token'
 
 export const tokenStore = {
   get: () => localStorage.getItem(TOKEN_KEY),

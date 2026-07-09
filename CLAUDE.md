@@ -1,4 +1,4 @@
-# CareerKit -- Project Context
+# coolkit -- Project Context
 
 ## What Is This?
 

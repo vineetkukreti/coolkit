@@ -1,4 +1,4 @@
-# CareerKit -- Setup Guide
+# coolkit -- Setup Guide
 
 > Step-by-step installation, configuration, and first run.
 
@@ -14,8 +14,8 @@
 
 ```bash
 # 1. Clone
-git clone https://github.com/vineetkukreti/careerkit.git
-cd careerkit
+git clone https://github.com/vineetkukreti/coolkit.git
+cd coolkit
 
 # 2. Python environment
 python3 -m venv venv
@@ -41,8 +41,8 @@ Open http://localhost:5173 -- the onboarding wizard walks you through the rest.
 ### 1. Clone and Python Setup
 
 ```bash
-git clone https://github.com/vineetkukreti/careerkit.git
-cd careerkit
+git clone https://github.com/vineetkukreti/coolkit.git
+cd coolkit
 
 python3 -m venv venv
 source venv/bin/activate
@@ -159,7 +159,7 @@ cd ..
 
 ### 4. Ollama Setup (Optional)
 
-Ollama provides a local LLM that CareerKit uses as its primary extraction engine. If unavailable, it falls back to the Gemini API automatically.
+Ollama provides a local LLM that coolkit uses as its primary extraction engine. If unavailable, it falls back to the Gemini API automatically.
 
 ```bash
 # Install Ollama
@@ -172,11 +172,11 @@ ollama pull qwen2.5:7b
 curl http://localhost:11434/api/tags
 ```
 
-Ollama runs as a background service on port 11434. CareerKit detects it automatically on startup.
+Ollama runs as a background service on port 11434. coolkit detects it automatically on startup.
 
 ### 5. LinkedIn Browser Setup
 
-CareerKit uses a persistent Playwright browser session for LinkedIn. First-time setup:
+coolkit uses a persistent Playwright browser session for LinkedIn. First-time setup:
 
 **Option A: Through the app (recommended)**
 
@@ -203,7 +203,7 @@ Gmail requires an App Password for SMTP access (regular passwords are blocked):
 1. Go to https://myaccount.google.com/security
 2. Enable **2-Step Verification** if not already on
 3. Go to https://myaccount.google.com/apppasswords
-4. Select app: "Mail", device: "Other" (enter "CareerKit")
+4. Select app: "Mail", device: "Other" (enter "coolkit")
 5. Click **Generate**
 6. Copy the 16-character password
 7. Paste it as `SMTP_PASSWORD` in `config/.env`
@@ -214,7 +214,7 @@ Gmail requires an App Password for SMTP access (regular passwords are blocked):
 2. Click **Create API key**
 3. Copy the key and set it as `GEMINI_API_KEY` in `config/.env`
 
-Free tier provides 15 requests per minute -- sufficient for normal use. CareerKit uses Gemini for email generation, job evaluation, resume tailoring, and interview prep.
+Free tier provides 15 requests per minute -- sufficient for normal use. coolkit uses Gemini for email generation, job evaluation, resume tailoring, and interview prep.
 
 ## Running the Application
 
@@ -286,7 +286,7 @@ Add:
 
 ```cron
 # Daily job cycle at 8 AM on weekdays
-0 8 * * 1-5 cd /path/to/careerkit && ./venv/bin/python scripts/daily_run.py >> data/logs/daily.log 2>&1
+0 8 * * 1-5 cd /path/to/coolkit && ./venv/bin/python scripts/daily_run.py >> data/logs/daily.log 2>&1
 ```
 
 ### Manual Daily Run
@@ -323,7 +323,7 @@ After installation, check each component:
 ```nginx
 server {
     listen 80;
-    server_name careerkit.example.com;
+    server_name coolkit.example.com;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -344,19 +344,19 @@ cd frontend-src && npm run build && cd ..
 
 ### systemd Service
 
-Create `/etc/systemd/system/careerkit.service`:
+Create `/etc/systemd/system/coolkit.service`:
 
 ```ini
 [Unit]
-Description=CareerKit Job Automation
+Description=coolkit Job Automation
 After=network.target
 
 [Service]
 Type=simple
 User=your_user
-WorkingDirectory=/path/to/careerkit
-ExecStart=/path/to/careerkit/venv/bin/uvicorn backend.server:app --host 0.0.0.0 --port 8000
-Environment=PYTHONPATH=/path/to/careerkit/backend
+WorkingDirectory=/path/to/coolkit
+ExecStart=/path/to/coolkit/venv/bin/uvicorn backend.server:app --host 0.0.0.0 --port 8000
+Environment=PYTHONPATH=/path/to/coolkit/backend
 Restart=on-failure
 RestartSec=5
 
@@ -365,16 +365,16 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable careerkit
-sudo systemctl start careerkit
+sudo systemctl enable coolkit
+sudo systemctl start coolkit
 ```
 
 ### Log Rotation
 
-Add to `/etc/logrotate.d/careerkit`:
+Add to `/etc/logrotate.d/coolkit`:
 
 ```
-/path/to/careerkit/data/logs/*.log {
+/path/to/coolkit/data/logs/*.log {
     daily
     rotate 14
     compress
@@ -404,7 +404,7 @@ Add to `/etc/logrotate.d/careerkit`:
 ### Ollama not detected
 - Confirm Ollama is running: `curl http://localhost:11434/api/tags`
 - Pull the model if missing: `ollama pull qwen2.5:7b`
-- CareerKit automatically falls back to Gemini if Ollama is unreachable
+- coolkit automatically falls back to Gemini if Ollama is unreachable
 
 ### Port conflicts
 - `run.sh` auto-kills any process on ports 8000 and 5173 before starting

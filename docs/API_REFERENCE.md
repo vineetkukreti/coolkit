@@ -1,4 +1,4 @@
-# CareerKit -- API Reference
+# coolkit -- API Reference
 
 > Complete REST API documentation for all endpoints.
 

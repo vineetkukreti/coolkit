@@ -15,7 +15,7 @@ import jwt
 
 from db import init_auth_db
 
-logger = logging.getLogger("careerkit.auth")
+logger = logging.getLogger("coolkit.auth")
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 

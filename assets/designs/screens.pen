@@ -57,7 +57,7 @@
               "type": "text",
               "id": "nZ9Uw",
               "fill": "$--fg-primary",
-              "content": "CareerKit",
+              "content": "coolkit",
               "fontFamily": "Inter",
               "fontSize": 18,
               "fontWeight": "700"
@@ -593,7 +593,7 @@
                           "type": "text",
                           "id": "ObDc8",
                           "fill": "$--fg-primary",
-                          "content": "Welcome to CareerKit",
+                          "content": "Welcome to coolkit",
                           "fontFamily": "Inter",
                           "fontSize": 24,
                           "fontWeight": "600"

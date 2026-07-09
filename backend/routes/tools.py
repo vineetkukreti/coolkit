@@ -54,7 +54,7 @@ def _read_clipboard_command():
 
 @router.get("/api/clipboard")
 def api_clipboard_read():
-    """Read the local system clipboard for CareerKit's capture mode."""
+    """Read the local system clipboard for coolkit's capture mode."""
     source, cmd = _read_clipboard_command()
     if not cmd:
         raise HTTPException(status_code=503, detail="No local clipboard reader found")

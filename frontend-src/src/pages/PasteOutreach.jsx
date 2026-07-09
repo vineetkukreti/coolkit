@@ -74,7 +74,7 @@ function ContactCard({ post, selected, onToggle, onEmailChange, defaultCollapsed
           {alreadySent && <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-success/10 text-success whitespace-nowrap"><CheckCircle size={9} /> Already Sent</span>}
           {post.email && !alreadySent && <span className="text-xs text-accent truncate max-w-[180px]">{post.email}</span>}
           {post.phone && <Phone size={11} className="text-success" />}
-          {!alreadySent && isBank && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-warning-bg text-warning whitespace-nowrap">{post.fit_reason?.replace(/^(exp-too-high:|irrelevant-role:|location:)/, "")}</span>}
+          {!alreadySent && isBank && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-warning-bg text-warning whitespace-nowrap">{post.fit_reason?.replace(/^(exp-too-high:|too-senior:|irrelevant-role:|location:)/, "")}</span>}
           {!alreadySent && !isBank && post.domain_relevance === "High" && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-accent-bg text-accent">High</span>}
           {expanded ? <ChevronUp size={14} className="text-fg-muted" /> : <ChevronDown size={14} className="text-fg-muted" />}
         </div>

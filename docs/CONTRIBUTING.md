@@ -1,10 +1,10 @@
-# CareerKit -- Contributing Guide
+# coolkit -- Contributing Guide
 
 > How to set up your development environment, follow project conventions, and submit contributions.
 
 ## Welcome
 
-CareerKit is a full-stack job hunting automation platform: it scrapes 100+ job sources, extracts structured data via LLM, scores relevance, and automates applications and cold email outreach. Contributions are welcome in the following areas:
+coolkit is a full-stack job hunting automation platform: it scrapes 100+ job sources, extracts structured data via LLM, scores relevance, and automates applications and cold email outreach. Contributions are welcome in the following areas:
 
 - **New job sources** -- the most common contribution (see below)
 - **Bug fixes** -- scraper breakage, UI glitches, extraction accuracy

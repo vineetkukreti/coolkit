@@ -1,4 +1,4 @@
-# CareerKit -- AI Assistant Context
+# coolkit -- AI Assistant Context
 
 > Exhaustive reference for AI assistants working on this codebase. Covers architecture
 > decisions, error handling, recovery patterns, every service file, and step-by-step
@@ -9,7 +9,7 @@
 
 ## Project Overview
 
-CareerKit is a full-stack job hunting automation platform built for a single user
+coolkit is a full-stack job hunting automation platform built for a single user
 (an AI Engineer with 2 years of healthcare AI experience). The system:
 
 1. **Scrapes** 120+ job sources (LinkedIn, RemoteOK, Greenhouse, Indeed, Naukri, 60+ HTML boards, etc.)

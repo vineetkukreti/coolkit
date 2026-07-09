@@ -1,4 +1,4 @@
-# CareerKit -- Troubleshooting
+# coolkit -- Troubleshooting
 
 > Common issues, debugging techniques, and recovery procedures.
 
@@ -29,7 +29,7 @@ sudo apt install libxml2-dev libxslt-dev python3-dev build-essential
 
 The `lxml` and `crawl4ai` packages are the most common offenders.
 
-**Python version mismatch:** CareerKit uses `str | None` union syntax which requires Python 3.11+. Check with `python3 --version`.
+**Python version mismatch:** coolkit uses `str | None` union syntax which requires Python 3.11+. Check with `python3 --version`.
 
 **Virtual environment not activated:** The `run.sh` script auto-activates `venv/`, but if running manually:
 
@@ -153,7 +153,7 @@ The LLM client checks Ollama once and caches the result. If Ollama was started a
 
 **Rate limit / quota exceeded:** The free tier of Gemini has per-minute and per-day limits. The email worker adds 1-2 second delays between generation calls, and the send worker adds 3-8 second delays. If you hit limits, check the [Google AI Studio dashboard](https://aistudio.google.com/).
 
-**Model not available:** CareerKit uses `gemini-2.5-flash-lite` for email generation and extraction. If the model name changes, update it in `backend/llm/client.py` (GEMINI_MODEL) and `backend/services/email_service.py`.
+**Model not available:** coolkit uses `gemini-2.5-flash-lite` for email generation and extraction. If the model name changes, update it in `backend/llm/client.py` (GEMINI_MODEL) and `backend/services/email_service.py`.
 
 ### Extraction returning empty fields
 

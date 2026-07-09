@@ -1,4 +1,4 @@
-# CareerKit -- Configuration Reference
+# coolkit -- Configuration Reference
 
 > All configuration options, environment variables, and customization points.
 

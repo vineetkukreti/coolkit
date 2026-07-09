@@ -302,8 +302,8 @@ def api_test_email():
     try:
         _send_email_smtp(
             SMTP_CONFIG["from_email"],
-            "CareerKit — SMTP Test",
-            "This is a test email from CareerKit.\n\nYour SMTP configuration is working correctly.\n\nYou can now send cold outreach emails from the Email tab.",
+            "coolkit — SMTP Test",
+            "This is a test email from coolkit.\n\nYour SMTP configuration is working correctly.\n\nYou can now send cold outreach emails from the Email tab.",
         )
         return {"status": "ok", "message": f"Test email sent to {SMTP_CONFIG['from_email']}"}
     except Exception as e:

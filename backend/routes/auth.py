@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from auth import AuthError, register_user, authenticate_user, create_access_token
 from deps import get_current_user
 
-logger = logging.getLogger("careerkit.auth")
+logger = logging.getLogger("coolkit.auth")
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 

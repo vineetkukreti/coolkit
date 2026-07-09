@@ -1236,7 +1236,7 @@ export default function Settings() {
                 </div>
               </Card>
 
-              <Card title="About CareerKit" icon={Info}>
+              <Card title="About coolkit" icon={Info}>
                 <div className="space-y-2 text-sm">
                   <p className="text-fg-secondary">Full-stack job hunting automation platform</p>
                   <p className="text-fg-muted text-xs">100+ job sources &bull; AI-powered email generation &bull; Smart scoring &bull; Auto-apply</p>

@@ -34,12 +34,12 @@ export default function Login() {
           <div className="w-10 h-10 bg-accent rounded-lg flex items-center justify-center">
             <span className="text-fg-inverse font-bold">CK</span>
           </div>
-          <span className="text-xl font-bold text-fg-primary">CareerKit</span>
+          <span className="text-xl font-bold text-fg-primary">coolkit</span>
         </div>
 
         <div className="bg-bg-secondary border border-border rounded-2xl p-6">
           <h1 className="text-lg font-bold text-fg-primary mb-1">Welcome back</h1>
-          <p className="text-sm text-fg-secondary mb-5">Log in to your CareerKit workspace.</p>
+          <p className="text-sm text-fg-secondary mb-5">Log in to your coolkit workspace.</p>
 
           {error && (
             <div className="mb-4 px-3 py-2.5 rounded-lg bg-danger-bg border border-danger/20 text-sm text-danger">

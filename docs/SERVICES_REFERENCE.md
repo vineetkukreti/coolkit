@@ -1,4 +1,4 @@
-# CareerKit -- Services Reference
+# coolkit -- Services Reference
 
 > Complete reference for all backend services, their functions, dependencies, and behavior.
 

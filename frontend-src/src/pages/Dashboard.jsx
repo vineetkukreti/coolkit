@@ -1082,10 +1082,10 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-semibold text-fg-primary">
             {loading
-              ? 'Welcome to CareerKit'
+              ? 'Welcome to coolkit'
               : userName
                 ? `Welcome back, ${userName}`
-                : 'Welcome to CareerKit'
+                : 'Welcome to coolkit'
             }
           </h1>
           <p className="text-sm text-fg-muted mt-1">

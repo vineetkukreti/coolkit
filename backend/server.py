@@ -75,14 +75,14 @@ logging.basicConfig(level=logging.DEBUG, handlers=[_fh, _ch, _bh])
 for noisy in ["urllib3", "httpcore", "httpx", "watchfiles", "multipart"]:
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
-logger = logging.getLogger("careerkit")
-logger.info("CareerKit server starting...")
+logger = logging.getLogger("coolkit")
+logger.info("coolkit server starting...")
 
 # ───────────────────────────────────────────────
 # App
 # ───────────────────────────────────────────────
 
-app = FastAPI(title="CareerKit")
+app = FastAPI(title="coolkit")
 
 _cors_origins = [
     "http://localhost:5173", "http://localhost:8000",

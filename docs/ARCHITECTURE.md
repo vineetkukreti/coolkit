@@ -1,10 +1,10 @@
-# CareerKit -- Architecture
+# coolkit -- Architecture
 
 > System design, component interactions, threading model, and data flow.
 
 ## System Overview
 
-CareerKit is a full-stack job hunting automation platform. It scrapes 120+ job sources in parallel, extracts structured data via a local/cloud LLM chain, scores jobs on six weighted dimensions, automates applications across LinkedIn Easy Apply, email, and redirect channels, and manages cold email outreach with IMAP reply detection -- all from a single-page React dashboard.
+coolkit is a full-stack job hunting automation platform. It scrapes 120+ job sources in parallel, extracts structured data via a local/cloud LLM chain, scores jobs on six weighted dimensions, automates applications across LinkedIn Easy Apply, email, and redirect channels, and manages cold email outreach with IMAP reply detection -- all from a single-page React dashboard.
 
 The system is designed for local-only deployment on a single machine. There is no authentication layer; the assumption is the operator is the only user.
 
@@ -59,7 +59,7 @@ The system is designed for local-only deployment on a single machine. There is n
 ## Directory Structure
 
 ```
-careerkit/
+coolkit/
 ├── backend/
 │   ├── server.py                 # FastAPI app creation, CORS, route registration, IMAP startup
 │   ├── config.py                 # PROFILE dict, RESUME_SKILLS, search keywords, regions, query builder
@@ -329,7 +329,7 @@ The `AutoApplyEngine` class orchestrates automated job applications with a tiere
 
 ## Threading Model
 
-CareerKit uses multiple threads because Playwright requires all operations on the same thread that created the browser context, while FastAPI serves requests from a thread pool.
+coolkit uses multiple threads because Playwright requires all operations on the same thread that created the browser context, while FastAPI serves requests from a thread pool.
 
 ```
 Main Thread
