@@ -95,6 +95,8 @@ if os.getenv("FRONTEND_URL"):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    # coolkit browser extension (Chrome/Edge/Firefox) calls the API directly
+    allow_origin_regex=r"^(chrome|moz)-extension://.*$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -255,6 +257,7 @@ from routes.tools import router as tools_router
 from routes.auto_apply import router as auto_apply_router
 from routes.skills_intel import router as skills_intel_router
 from routes.orchestrator import router as orchestrator_router
+from routes.copilot import router as copilot_router
 from routes.auth import router as auth_router
 
 app.include_router(auth_router)
@@ -270,6 +273,7 @@ app.include_router(tools_router)
 app.include_router(auto_apply_router)
 app.include_router(skills_intel_router)
 app.include_router(orchestrator_router)
+app.include_router(copilot_router)
 
 # ───────────────────────────────────────────────
 # Auto-start IMAP reply polling on startup

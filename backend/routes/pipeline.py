@@ -2,11 +2,13 @@
 
 import re
 import threading
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from db import init_db
+from services.email_service import scan_interviews, scan_offers
 
 router = APIRouter()
 
@@ -202,6 +204,46 @@ def _find_duplicate_lead(db_conn, recipient_email: str, post_id, company: str):
     return None
 
 
+def _sync_applications_into_pipeline(db_conn) -> int:
+    """Import job applications into the pipeline so portal/status emails can be matched.
+
+    Uses a synthetic email derived from the job URL domain or the company name.
+    Duplicates are avoided via the application_id column.
+    """
+    apps = db_conn.execute(
+        """SELECT id, company, job_title, location, job_url, applied_at
+           FROM applications
+           WHERE status IN ('applied', 'pending')
+             AND id NOT IN (
+                 SELECT application_id FROM pipeline_leads WHERE application_id IS NOT NULL
+             )"""
+    ).fetchall()
+
+    inserted = 0
+    for a in apps:
+        company = (a["company"] or "").strip() or "Unknown Company"
+        role = (a["job_title"] or "").strip() or "Unknown Role"
+        url = a["job_url"] or ""
+
+        m = re.search(r'https?://(?:www\.)?([^/]+)', url)
+        domain = m.group(1).lower() if m else None
+        if not domain or domain in {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com",
+                                    "hotmail.com", "live.com", "icloud.com", "protonmail.com"}:
+            company_clean = re.sub(r'[^a-z0-9.\-]+', '', company.lower().replace(" ", ""))
+            domain = company_clean if company_clean and "." in company_clean else "unknown.job"
+
+        email = f"application@{domain}"
+        db_conn.execute(
+            """INSERT INTO pipeline_leads
+               (application_id, recipient_email, recipient_name, role, company, location, stage, source, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'applied', 'application', ?)""",
+            (a["id"], email, company, role, company, a["location"], a["applied_at"]),
+        )
+        inserted += 1
+
+    return inserted
+
+
 # ───────────────────────────────────────────────
 # Pydantic models
 # ───────────────────────────────────────────────
@@ -378,12 +420,39 @@ def api_pipeline_add_note(req: PipelineAddNote):
 
 @router.post("/api/pipeline/sync")
 def api_pipeline_sync():
-    """Sync sent AND replied emails into pipeline_leads, and update stale stages."""
+    """Sync sent/replied emails into pipeline_leads, import applications, then scan inbox.
+
+    The full flow:
+      1. Import applications as pipeline leads so portal/status emails can be matched.
+      2. Scan IMAP for replies to sent outreach, interview emails, and offer emails.
+      3. Sync email_outreach status into pipeline_leads and backfill metadata.
+    """
     db_conn = _get_db()
     inserted = 0
     updated = 0
 
-    # 1. Import sent + replied emails not yet in pipeline
+    # 0. Import applications so the inbox scanners can match portal/interview emails.
+    app_inserted = _sync_applications_into_pipeline(db_conn)
+    inserted += app_inserted
+
+    # 1. Scan IMAP for domain-aware interview/offer emails.
+    # Limit lookback to the last 30 days to keep IMAP scans fast.
+    # Note: per-recipient reply detection is handled by the background IMAP poller or
+    # /api/email/check-replies; running it here is too slow for a sync endpoint.
+    imap_results = {}
+    is_test_run = getattr(_local, 'conn', None) is not None
+    if not is_test_run:
+        since = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
+        try:
+            imap_results["interviews"] = scan_interviews(since_date=since)
+        except Exception as e:
+            imap_results["interviews"] = {"status": "error", "error": str(e)}
+        try:
+            imap_results["offers"] = scan_offers(since_date=since)
+        except Exception as e:
+            imap_results["offers"] = {"status": "error", "error": str(e)}
+
+    # 2. Import sent + replied emails not yet in pipeline
     untracked = db_conn.execute(
         """SELECT eo.id, eo.post_id, eo.recipient_email, eo.subject, eo.body, eo.sent_at,
                   eo.status as email_status, eo.reply_type, eo.reply_preview,
@@ -552,7 +621,9 @@ def api_pipeline_sync():
         "synced": inserted,
         "stages_updated": updated,
         "enriched": enriched,
-        "message": f"Synced {inserted} new leads, updated {updated} stages, enriched {enriched} records"
+        "applications_imported": app_inserted,
+        "imap_results": imap_results,
+        "message": f"Synced {inserted} new leads, updated {updated} stages, enriched {enriched} records, imported {app_inserted} applications"
     }
 
 

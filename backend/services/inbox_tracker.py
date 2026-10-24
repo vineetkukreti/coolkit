@@ -74,14 +74,23 @@ INTERVIEW_PATTERNS = [
     "hiring manager would like", "round of interviews",
     "shortlisted", "shortlisting", "hr round", "managerial round",
     "zoom meeting", "google meet", "ms teams", "teams meeting",
+    # Job-portal / recruiter invitation vocabulary
+    "job invite", "job invitation", "recruiter has invited", "invited you for", "invited you to",
+    "has invited you", "selected for interview", "selected for the role", "moved to the next stage",
+    "chat regarding", "discussion regarding", "conversation about", "talk about the role",
+    "meet with the team", "meet the team", "hiring manager would like",
 ]
 
-# Companies that send automated application emails (from career portals)
+# Companies that send automated application emails (from career portals and job boards)
 CAREER_PORTAL_SENDERS = [
     "noreply@", "no-reply@", "careers@", "jobs@", "talent@",
     "recruiting@", "hiring@", "hr@", "applications@",
     "workday", "greenhouse", "lever", "icims", "taleo",
     "smartrecruiters", "jobvite", "ashby", "bamboohr",
+    # Indian/global job boards and recruiter platforms
+    "naukri.com", "naukri", "linkedin.com", "linkedin", "indeed", "glassdoor",
+    "wellfound", "angel.co", "internshala", "shine", "monster", "bayt",
+    "iimjobs", "hirist", "foundit", "timesjobs", "simplyhired",
 ]
 
 
@@ -223,8 +232,15 @@ def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
                 from_addr = _decode_header(msg.get("From", "")).lower()
                 subject = _decode_header(msg.get("Subject", ""))
 
-                # Quick pre-filter: only process career-portal-like emails
-                if not any(p in from_addr for p in CAREER_PORTAL_SENDERS):
+                # Quick pre-filter: process career-portal-like emails OR any email that
+                # contains strong interview/offer/rejection signals. This catches recruiter
+                # and company-direct emails that don't come from a known career portal.
+                is_career_portal = any(p in from_addr for p in CAREER_PORTAL_SENDERS)
+                has_strong_signal = any(
+                    p in (subject + " " + body).lower()
+                    for p in (INTERVIEW_PATTERNS + OFFER_PATTERNS + REJECTION_PATTERNS)
+                )
+                if not is_career_portal and not has_strong_signal:
                     continue
 
                 # Fetch full body for classification

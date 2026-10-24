@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bg:#0f0f14; --card:#1a1a22; --fg:#e8e8ef; --muted:#9a9aa8; --accent:#A855F7; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  body { margin:0; width:340px; background:var(--bg); color:var(--fg); font:13px/1.4 system-ui,sans-serif; }
+  header { padding:12px 14px; font-weight:700; border-bottom:1px solid #2a2a35; }
+  header span { color:var(--accent); }
+  section { padding:12px 14px; }
+  input, select { width:100%; box-sizing:border-box; margin:4px 0 8px; padding:7px 8px; border-radius:8px; border:1px solid #2a2a35; background:var(--card); color:var(--fg); }
+  button { width:100%; padding:9px; margin:4px 0; border:0; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
+  button.secondary { background:var(--card); border:1px solid #2a2a35; }
+  .card { background:var(--card); border-radius:10px; padding:10px; margin:8px 0; }
+  .muted { color:var(--muted); font-size:12px; }
+  .score { font-size:28px; font-weight:800; }
+  .chips span { display:inline-block; margin:2px; padding:2px 7px; border-radius:99px; background:#2a2a35; font-size:11px; }
+  .hidden { display:none; }
+  #msg { min-height:16px; font-size:12px; }
+</style>
+</head>
+<body>
+  <header><span>coolkit</span> Copilot</header>
+
+  <section id="login" class="hidden">
+    <label class="muted">API URL</label>
+    <input id="api" placeholder="http://localhost:8000">
+    <label class="muted">Email</label>
+    <input id="email" type="email">
+    <label class="muted">Password</label>
+    <input id="password" type="password">
+    <button id="loginBtn">Sign in</button>
+  </section>
+
+  <section id="main" class="hidden">
+    <label class="muted">Title</label><input id="title">
+    <label class="muted">Company</label><input id="company">
+    <label class="muted">Location</label><input id="location">
+    <select id="status"><option value="pending">Save as: Wishlist</option><option value="applied">Save as: Applied</option></select>
+    <button id="saveBtn">Save job + match score</button>
+    <button id="fillBtn" class="secondary">Autofill this application</button>
+    <button id="rememberBtn" class="secondary">Remember my answers on this form</button>
+    <div id="result" class="card hidden"></div>
+    <p class="muted"><a href="#" id="logout" style="color:var(--muted)">Sign out</a></p>
+  </section>
+  <div id="msg" style="padding:0 14px 10px"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

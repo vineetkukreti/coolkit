@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS pipeline_leads (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id         INTEGER REFERENCES posts(id) ON DELETE CASCADE,
     outreach_id     INTEGER REFERENCES email_outreach(id),
+    application_id  INTEGER REFERENCES applications(id),
     recipient_name  TEXT,
     recipient_email TEXT NOT NULL,
     role            TEXT,
@@ -357,6 +358,7 @@ def run_migrations(conn):
         "ALTER TABLE email_outreach ADD COLUMN experience TEXT",
         "ALTER TABLE email_outreach ADD COLUMN posted_at TEXT",
         "ALTER TABLE email_outreach ADD COLUMN skills_json TEXT",
+        "ALTER TABLE pipeline_leads ADD COLUMN application_id INTEGER REFERENCES applications(id)",
     ]
     for sql in migrations:
         try:

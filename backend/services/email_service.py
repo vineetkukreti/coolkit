@@ -8,6 +8,7 @@ import smtplib
 import socket
 import time
 import threading
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
@@ -1471,7 +1472,9 @@ def _classify_reply(body: str, subject: str = "") -> str:
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
-    # Auto-reply patterns (check first — these aren't human replies)
+    # Auto-reply patterns (check first — these aren't human replies).
+    # BUT a job invite/recruiter invitation is NOT an auto-reply, so we carve those out
+    # before returning "auto_reply".
     auto_patterns = [
         "we have received your", "ticket has been created", "request received",
         "auto-reply", "automatic reply", "out of office", "ooo",
@@ -1487,7 +1490,13 @@ def _classify_reply(body: str, subject: str = "") -> str:
         "apply on our job portal",
     ]
     if any(p in text for p in auto_patterns):
-        return "auto_reply"
+        # Recruiter job invitations override auto-reply classification.
+        invite_override = [
+            "job invite", "job invitation", "recruiter has invited",
+            "invited you for", "invited you to", "has invited you",
+        ]
+        if not any(p in text for p in invite_override):
+            return "auto_reply"
 
     # Rejection patterns — comprehensive list for job outreach
     reject_patterns = [
@@ -1617,6 +1626,11 @@ def _classify_reply(body: str, subject: str = "") -> str:
         "invite you for an interview", "invite you to an interview", "invite you to interview",
         "invitation to interview", "would like to invite you", "like to invite you",
         "schedule an interview", "interview invitation", "interview has been scheduled",
+        # Job-portal / recruiter invitation vocabulary
+        "job invite", "job invitation", "recruiter has invited", "invited you for", "invited you to",
+        "has invited you", "selected for interview", "selected for the role", "moved to the next stage",
+        "chat regarding", "discussion regarding", "conversation about", "talk about the role",
+        "meet with the team", "meet the team", "hiring manager would like",
         "calendly", "calendar invite", "schedule a call", "set up a call", "set up a time",
         "book a slot", "book a time", "pick a slot", "pick a time",
         "your availability", "share your availability", "availability for",
@@ -2140,6 +2154,127 @@ def deep_scan_replies(since_date=None):
         return {"status": "error", "error": str(e)}
 
 
+def _build_domain_map(conn, generic_providers, include_applications=False):
+    """Build domain -> tracked leads map from pipeline_leads and optionally applications.
+
+    Applications are keyed by the domain of their job_url (or a synthetic domain
+    derived from the company name) so that interview/offer emails from job portals or
+    company career sites are matched even when the application was not made via an
+    email outreach recorded in pipeline_leads.
+    """
+    def _extract_domain(email_field):
+        if not email_field or "@" not in email_field:
+            return None
+        # Comma-separated emails: take the first one.
+        first = email_field.split(",")[0].strip()
+        if "@" not in first:
+            return None
+        return first.split("@")[1].lower()
+
+    domain_map = {}
+    leads = conn.execute(
+        "SELECT id, recipient_email, company, stage, source FROM pipeline_leads WHERE source != 'application'"
+    ).fetchall()
+    for l in leads:
+        dom = _extract_domain(l["recipient_email"])
+        if dom and dom not in generic_providers:
+            domain_map.setdefault(dom, []).append(dict(l))
+
+    if not include_applications:
+        return domain_map
+
+    apps = conn.execute(
+        "SELECT id, company, job_title, job_url, platform FROM applications "
+        "WHERE status IN ('applied', 'pending') AND company IS NOT NULL AND company != ''"
+    ).fetchall()
+    for a in apps:
+        url = a["job_url"] or ""
+        dom = None
+        m = re.search(r'https?://(?:www\.)?([^/]+)', url)
+        if m:
+            dom = m.group(1).lower()
+            if dom in generic_providers:
+                dom = None
+        # Fall back to a cleaned-up company domain if the job URL is generic/missing.
+        if not dom:
+            company_clean = re.sub(r'[^a-z0-9.\-]+', '', (a["company"] or "").lower().replace(" ", ""))
+            if company_clean and "." in company_clean:
+                dom = company_clean
+        if not dom:
+            continue
+        record = dict(a)
+        record["stage"] = "applied"
+        record["source"] = "application"
+        domain_map.setdefault(dom, []).append(record)
+
+    return domain_map
+
+
+def _filter_application_matches(frm: str, subject: str, body: str, matched_leads: list) -> list:
+    """Filter application leads to those whose company matches the email content.
+
+    Job-portal emails (e.g. Naukri) often come from a shared domain shared by many
+    applications. This prevents a single job invite from advancing every Naukri
+    application lead. If no company can be extracted, the matched leads are returned
+    unchanged as a fallback.
+    """
+    if not matched_leads:
+        return matched_leads
+
+    # Only filter application-source leads.
+    app_leads = [l for l in matched_leads if l.get("source") == "application"]
+    if not app_leads:
+        return matched_leads
+
+    text = (frm + " " + subject + " " + body).lower()
+
+    # Extract company candidates from the email.
+    companies = set()
+
+    # Display name from the From header.
+    display = ""
+    m = re.match(r'"(.+?)"\s*<', frm)
+    if not m:
+        m = re.match(r'(.+?)\s*<', frm)
+    if m:
+        display = m.group(1).strip().lower()
+        display = re.sub(r'from naukri.*', '', display).strip()
+        display = re.sub(r'via linkedin.*', '', display).strip()
+    if display and len(display) > 2 and display not in {"hr", "recruiter", "hiring manager", "team", "services"}:
+        companies.add(display)
+
+    # Body patterns for Naukri / other job portals.
+    for pattern in [
+        r'Posted by\s+([A-Z][A-Za-z0-9\s&]+)',
+        r'registered with Naukri\.com as\s+([A-Z][A-Za-z0-9\s&]+)',
+        r'Company[:\s]+([A-Z][A-Za-z0-9\s&]+)',
+        r'Hiring for\s+([A-Z][A-Za-z0-9\s&]+) industry',
+    ]:
+        m = re.search(pattern, body, re.IGNORECASE)
+        if m:
+            c = m.group(1).strip().lower()
+            c = re.sub(r'\s+industry.*', '', c).strip()
+            if c and len(c) > 2:
+                companies.add(c)
+
+    # If we couldn't extract a company, fall back to the original broad matching.
+    if not companies:
+        return matched_leads
+
+    # Keep application leads whose company appears in the email (or vice versa).
+    filtered_apps = []
+    for lead in app_leads:
+        lead_company = (lead.get("company") or "").strip().lower()
+        if not lead_company:
+            continue
+        if any(lead_company in c or c in lead_company for c in companies):
+            filtered_apps.append(lead)
+
+    # Keep non-application leads unchanged.
+    non_app_leads = [l for l in matched_leads if l.get("source") != "application"]
+    return non_app_leads + filtered_apps
+
+
 def scan_offers(since_date="01-Apr-2026", folders=None):
     """Scan the mailbox for job-offer emails and advance matching pipeline leads to 'offer'.
 
@@ -2161,17 +2296,7 @@ def scan_offers(since_date="01-Apr-2026", folders=None):
     own_addr = (IMAP_CONFIG["user"] or "").strip().lower()
 
     conn = init_db()
-    leads = conn.execute(
-        "SELECT id, recipient_email, company, stage FROM pipeline_leads"
-    ).fetchall()
-    domain_map = {}
-    for l in leads:
-        em = (l["recipient_email"] or "").strip().lower()
-        if "@" in em:
-            dom = em.split("@")[1]
-            if dom in GENERIC_PROVIDERS:
-                continue  # skip gmail/outlook/etc. leads — domain is not a company signal
-            domain_map.setdefault(dom, []).append(dict(l))
+    domain_map = _build_domain_map(conn, GENERIC_PROVIDERS, include_applications=True)
     if not domain_map:
         conn.close()
         return {"status": "ok", "offers_found": 0, "advanced": 0, "offers": []}
@@ -2211,6 +2336,23 @@ def scan_offers(since_date="01-Apr-2026", folders=None):
                 except Exception:
                     continue
 
+            # Body search catches offer emails where the subject is vague but the body
+            # contains strong offer language (e.g. "Salary Structure", "Letter of Engagement").
+            # Use single-word keys because standard IMAP BODY does not accept phrases.
+            for body_kw in ["offer", "salary", "engagement", "compensation",
+                            "joining", "ctc", "loi", "loe"]:
+                try:
+                    typ, data = mail.uid("search", None, "SINCE", since_date, "BODY", body_kw)
+                    if typ == "OK" and data and data[0]:
+                        uids.update(data[0].split())
+                except Exception:
+                    continue
+
+            # UIDs are monotonically increasing, so the highest UIDs are the most recent.
+            # Limit to the newest 50 candidates to keep header/body fetches fast.
+            if len(uids) > 50:
+                uids = set(sorted(uids, key=lambda x: int(x))[-50:])
+
             for uid in uids:
                 # Header-only first (cheap) — resolve sender domain before fetching the body.
                 typ, md = mail.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
@@ -2235,27 +2377,63 @@ def scan_offers(since_date="01-Apr-2026", folders=None):
                     continue
                 fmsg = email_lib.message_from_bytes(fd[0][1])
                 body = _extract_email_body(fmsg)
+                # Narrow application-source matches to the company named in the email so a
+                # single job-portal email does not advance every application lead.
+                matched = _filter_application_matches(frm, subject, body, matched)
+                if not matched:
+                    continue
                 if _classify_reply(body, subject) != "offer":
                     continue
 
                 advanced_ids = []
                 for lead in matched:
-                    if lead["id"] in seen_leads or lead["stage"] == "offer":
+                    if lead["id"] in seen_leads or lead.get("stage") == "offer":
                         continue
-                    conn.execute(
-                        "UPDATE pipeline_leads SET stage = 'offer', updated_at = datetime('now') WHERE id = ?",
-                        (lead["id"],),
-                    )
-                    conn.execute(
-                        "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
-                        "VALUES (?, 'stage_change', ?, ?)",
-                        (lead["id"], "Offer detected → Offer",
-                         f"Offer email from {frm[:80]} — subject: {subject[:140]}"),
-                    )
-                    seen_leads.add(lead["id"])
-                    lead["stage"] = "offer"
-                    advanced += 1
-                    advanced_ids.append(lead["id"])
+                    if lead.get("source") == "application":
+                        # Create a pipeline lead for this application if one doesn't exist.
+                        existing = conn.execute(
+                            "SELECT id FROM pipeline_leads WHERE application_id = ?",
+                            (lead["id"],)
+                        ).fetchone()
+                        if existing:
+                            lead_id = existing["id"]
+                            conn.execute(
+                                "UPDATE pipeline_leads SET stage = 'offer', updated_at = datetime('now') WHERE id = ?",
+                                (lead_id,)
+                            )
+                        else:
+                            cur = conn.execute(
+                                """INSERT INTO pipeline_leads
+                                   (application_id, recipient_email, recipient_name, role, company, stage, source, created_at)
+                                   VALUES (?, ?, ?, ?, ?, 'offer', 'application', datetime('now'))""",
+                                (lead["id"], f"application@{dm.group(1)}", lead.get("company") or "",
+                                 lead.get("job_title") or "", lead.get("company") or "")
+                            )
+                            lead_id = cur.lastrowid
+                        conn.execute(
+                            "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                            "VALUES (?, 'stage_change', ?, ?)",
+                            (lead_id, "Offer detected → Offer",
+                             f"Offer email from {frm[:80]} — subject: {subject[:140]}"),
+                        )
+                        seen_leads.add(lead["id"])
+                        advanced += 1
+                        advanced_ids.append(lead_id)
+                    else:
+                        conn.execute(
+                            "UPDATE pipeline_leads SET stage = 'offer', updated_at = datetime('now') WHERE id = ?",
+                            (lead["id"],),
+                        )
+                        conn.execute(
+                            "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                            "VALUES (?, 'stage_change', ?, ?)",
+                            (lead["id"], "Offer detected → Offer",
+                             f"Offer email from {frm[:80]} — subject: {subject[:140]}"),
+                        )
+                        seen_leads.add(lead["id"])
+                        lead["stage"] = "offer"
+                        advanced += 1
+                        advanced_ids.append(lead["id"])
                 offers.append({"from": frm, "subject": subject, "advanced_leads": advanced_ids,
                                "matched_leads": [l["id"] for l in matched]})
                 conn.commit()
@@ -2286,17 +2464,7 @@ def scan_interviews(since_date="01-Apr-2026", folders=None):
     own_addr = (IMAP_CONFIG["user"] or "").strip().lower()
 
     conn = init_db()
-    leads = conn.execute(
-        "SELECT id, recipient_email, company, stage FROM pipeline_leads"
-    ).fetchall()
-    domain_map = {}
-    for l in leads:
-        em = (l["recipient_email"] or "").strip().lower()
-        if "@" in em:
-            dom = em.split("@")[1]
-            if dom in GENERIC_PROVIDERS:
-                continue
-            domain_map.setdefault(dom, []).append(dict(l))
+    domain_map = _build_domain_map(conn, GENERIC_PROVIDERS, include_applications=True)
     if not domain_map:
         conn.close()
         return {"status": "ok", "interviews_found": 0, "advanced": 0, "interviews": []}
@@ -2339,6 +2507,24 @@ def scan_interviews(since_date="01-Apr-2026", folders=None):
                 except Exception:
                     continue
 
+            # Body search catches interview emails where the subject line is vague
+            # (e.g. "Chat regarding engineer position") but the body contains strong signals
+            # like "Microsoft Teams", "job invite", or "Calendly". Use single-word keys
+            # because standard IMAP BODY does not accept multi-word phrases.
+            for body_kw in ["teams", "zoom", "invite", "calendly",
+                            "shortlisted", "assessment", "interview"]:
+                try:
+                    typ, data = mail.uid("search", None, "SINCE", since_date, "BODY", body_kw)
+                    if typ == "OK" and data and data[0]:
+                        uids.update(data[0].split())
+                except Exception:
+                    continue
+
+            # UIDs are monotonically increasing, so the highest UIDs are the most recent.
+            # Limit to the newest 50 candidates to keep header/body fetches fast.
+            if len(uids) > 50:
+                uids = set(sorted(uids, key=lambda x: int(x))[-50:])
+
             for uid in uids:
                 typ, md = mail.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
                 if typ != "OK" or not md or not md[0]:
@@ -2354,7 +2540,7 @@ def scan_interviews(since_date="01-Apr-2026", folders=None):
                 if not matched:
                     continue
                 # Cheap exit: skip if every matching lead is already at/after interviewing.
-                if all(_STAGE_RANK.get(l["stage"], 0) >= target_rank for l in matched):
+                if all(_STAGE_RANK.get(l.get("stage", ""), 0) >= target_rank for l in matched):
                     continue
 
                 subject = _decode_header_value(hmsg.get("Subject", ""))
@@ -2363,6 +2549,11 @@ def scan_interviews(since_date="01-Apr-2026", folders=None):
                     continue
                 fmsg = email_lib.message_from_bytes(fd[0][1])
                 body = _extract_email_body(fmsg)
+                # Narrow application-source matches to the company named in the email so a
+                # single job-portal email does not advance every application lead.
+                matched = _filter_application_matches(frm, subject, body, matched)
+                if not matched:
+                    continue
                 if _classify_reply(body, subject) != "interview":
                     continue
 
@@ -2370,22 +2561,55 @@ def scan_interviews(since_date="01-Apr-2026", folders=None):
                 for lead in matched:
                     if lead["id"] in seen_leads:
                         continue
-                    if _STAGE_RANK.get(lead["stage"], 0) >= target_rank:
+                    if _STAGE_RANK.get(lead.get("stage", ""), 0) >= target_rank:
                         continue  # forward-only — don't downgrade offer/rejected/interviewing
-                    conn.execute(
-                        "UPDATE pipeline_leads SET stage = 'interviewing', updated_at = datetime('now') WHERE id = ?",
-                        (lead["id"],),
-                    )
-                    conn.execute(
-                        "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
-                        "VALUES (?, 'stage_change', ?, ?)",
-                        (lead["id"], "Interview detected → Interviewing",
-                         f"Interview email from {frm[:80]} — subject: {subject[:140]}"),
-                    )
-                    seen_leads.add(lead["id"])
-                    lead["stage"] = "interviewing"
-                    advanced += 1
-                    advanced_ids.append(lead["id"])
+                    if lead.get("source") == "application":
+                        existing = conn.execute(
+                            "SELECT id, stage FROM pipeline_leads WHERE application_id = ?",
+                            (lead["id"],)
+                        ).fetchone()
+                        if existing:
+                            lead_id = existing["id"]
+                            if _STAGE_RANK.get(existing["stage"], 0) < target_rank:
+                                conn.execute(
+                                    "UPDATE pipeline_leads SET stage = 'interviewing', updated_at = datetime('now') WHERE id = ?",
+                                    (lead_id,)
+                                )
+                            else:
+                                continue
+                        else:
+                            cur = conn.execute(
+                                """INSERT INTO pipeline_leads
+                                   (application_id, recipient_email, recipient_name, role, company, stage, source, created_at)
+                                   VALUES (?, ?, ?, ?, ?, 'interviewing', 'application', datetime('now'))""",
+                                (lead["id"], f"application@{dm.group(1)}", lead.get("company") or "",
+                                 lead.get("job_title") or "", lead.get("company") or "")
+                            )
+                            lead_id = cur.lastrowid
+                        conn.execute(
+                            "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                            "VALUES (?, 'stage_change', ?, ?)",
+                            (lead_id, "Interview detected → Interviewing",
+                             f"Interview email from {frm[:80]} — subject: {subject[:140]}"),
+                        )
+                        seen_leads.add(lead["id"])
+                        advanced += 1
+                        advanced_ids.append(lead_id)
+                    else:
+                        conn.execute(
+                            "UPDATE pipeline_leads SET stage = 'interviewing', updated_at = datetime('now') WHERE id = ?",
+                            (lead["id"],),
+                        )
+                        conn.execute(
+                            "INSERT INTO pipeline_events (lead_id, event_type, title, content) "
+                            "VALUES (?, 'stage_change', ?, ?)",
+                            (lead["id"], "Interview detected → Interviewing",
+                             f"Interview email from {frm[:80]} — subject: {subject[:140]}"),
+                        )
+                        seen_leads.add(lead["id"])
+                        lead["stage"] = "interviewing"
+                        advanced += 1
+                        advanced_ids.append(lead["id"])
                 interviews.append({"from": frm, "subject": subject, "advanced_leads": advanced_ids,
                                    "matched_leads": [l["id"] for l in matched]})
                 conn.commit()

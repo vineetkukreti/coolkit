@@ -184,6 +184,15 @@ export const api = {
   deepDive: (data) => request('/tools/deep-dive', { method: 'POST', body: JSON.stringify(data) }),
   tailorCv: (jdText) => request('/tools/tailor-cv', { method: 'POST', body: JSON.stringify({ jd_text: jdText }) }),
   interviewPrep: (data) => request('/tools/interview-prep', { method: 'POST', body: JSON.stringify(data) }),
+  coverLetter: (data) => request('/copilot/cover-letter', { method: 'POST', body: JSON.stringify(data) }),
+  salaryEstimate: (data) => request('/copilot/salary', { method: 'POST', body: JSON.stringify(data) }),
+  linkedinOptimize: (data) => request('/copilot/linkedin', { method: 'POST', body: JSON.stringify(data) }),
+  mockQuestion: (data) => request('/copilot/mock-interview/question', { method: 'POST', body: JSON.stringify(data) }),
+  mockGrade: (data) => request('/copilot/mock-interview/grade', { method: 'POST', body: JSON.stringify(data) }),
+  getGoals: () => request('/goals'),
+  setGoals: (goals) => request('/goals', { method: 'POST', body: JSON.stringify(goals) }),
+  getAnswerBank: () => request('/answer-bank'),
+  deleteAnswer: (id) => request(`/answer-bank/${id}`, { method: 'DELETE' }),
 
   // Auto-Apply
   startAutoApply: (data) => request('/auto-apply/start', { method: 'POST', body: JSON.stringify(data) }),

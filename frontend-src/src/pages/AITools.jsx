@@ -2,9 +2,11 @@ import { useState, useCallback } from 'react'
 import {
   Sparkles, Send, Search, FileText, GraduationCap,
   Loader2, Copy, Check, ChevronDown, ChevronRight,
+  Mail, IndianRupee, UserRound, Mic, Target, BookMarked,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useToast } from '../components/Toast'
+import { CoverLetterTab, SalaryTab, LinkedInTab, MockInterviewTab, GoalsTab, AnswerBankTab } from '../components/CopilotTabs'
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -14,6 +16,12 @@ const TABS = [
   { key: 'deep-dive', label: 'Deep Dive', icon: Search },
   { key: 'tailor-cv', label: 'Tailor CV', icon: FileText },
   { key: 'interview-prep', label: 'Interview Prep', icon: GraduationCap },
+  { key: 'cover-letter', label: 'Cover Letter', icon: Mail },
+  { key: 'salary', label: 'Salary', icon: IndianRupee },
+  { key: 'linkedin', label: 'LinkedIn', icon: UserRound },
+  { key: 'mock-interview', label: 'Mock Interview', icon: Mic },
+  { key: 'goals', label: 'Goals', icon: Target },
+  { key: 'answer-bank', label: 'Answer Bank', icon: BookMarked },
 ]
 
 // ─── Copy button helper ─────────────────────────────────────────────────────
@@ -690,6 +698,12 @@ export default function AITools() {
       case 'deep-dive': return <DeepDiveTab />
       case 'tailor-cv': return <TailorCVTab />
       case 'interview-prep': return <InterviewPrepTab />
+      case 'cover-letter': return <CoverLetterTab />
+      case 'salary': return <SalaryTab />
+      case 'linkedin': return <LinkedInTab />
+      case 'mock-interview': return <MockInterviewTab />
+      case 'goals': return <GoalsTab />
+      case 'answer-bank': return <AnswerBankTab />
       default: return null
     }
   }
@@ -706,7 +720,7 @@ export default function AITools() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-6 border-b border-border">
+      <div className="flex items-center gap-1 mb-6 border-b border-border overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.key}
