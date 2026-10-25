@@ -266,3 +266,27 @@ def save_job_from_page(conn: sqlite3.Connection, url: str, title: str = "", comp
         "application_id": app_id,
         "ats": ats,
     }
+
+
+# ---------------------------------------------------------------------------
+# 7. Reply drafts for job emails (interview invites, offers, recruiter pings)
+# ---------------------------------------------------------------------------
+
+def draft_email_reply(subject: str, body: str, email_type: str, from_addr: str = "") -> dict:
+    goal = {
+        "interview": "accept the interview and propose 2-3 time windows as [placeholders] for the candidate to fill in",
+        "offer": "thank them warmly, confirm interest, and ask for the written offer / next steps without committing",
+        "rejection": "thank them briefly and ask to be considered for future roles",
+        "confirmation": "no reply usually needed; write a one-line polite acknowledgement",
+    }.get(email_type, "reply helpfully and briefly")
+    prompt = f"""Draft a reply from this candidate to a job-related email. Goal: {goal}.
+
+Candidate: {PROFILE.get("name", "")}, {PROFILE.get("current_title", "")}
+From: {from_addr}
+Subject: {subject}
+Email:
+{body[:2500]}
+
+Rules: under 120 words, warm and direct, no clichés, never invent dates or facts — use [placeholders].
+Return ONLY JSON: {{"subject": "Re: ...", "body": "<reply text>"}}"""
+    return _llm_json(prompt, max_tokens=500, temperature=0.4)

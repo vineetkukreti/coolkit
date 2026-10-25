@@ -197,6 +197,7 @@ export const api = {
   // Auto-Apply
   startAutoApply: (data) => request('/auto-apply/start', { method: 'POST', body: JSON.stringify(data) }),
   stopAutoApply: () => request('/auto-apply/stop', { method: 'POST' }),
+  reviewAutoApply: (decision) => request('/auto-apply/review', { method: 'POST', body: JSON.stringify({ decision }) }),
   getAutoApplyStatus: () => request('/auto-apply/status'),
   getAutoApplyQuota: () => request('/auto-apply/quota'),
 
@@ -281,6 +282,9 @@ export const api = {
 
   // Inbox Tracker
   scanInbox: (since) => request(`/inbox/scan${since ? '?since=' + encodeURIComponent(since) : ''}`, { method: 'POST' }),
+  getJobEmails: (type = '', includeHandled = false) => request(`/inbox/emails?type=${encodeURIComponent(type)}&include_handled=${includeHandled}`),
+  setJobEmailHandled: (id, handled = true) => request(`/inbox/emails/${id}/handled`, { method: 'POST', body: JSON.stringify({ handled }) }),
+  draftJobEmailReply: (id) => request(`/inbox/emails/${id}/draft-reply`, { method: 'POST' }),
   classifyEmail: (subject, body, from) => request('/inbox/classify', { method: 'POST', body: JSON.stringify({ subject, body, from }) }),
 
   // Funnel Analytics

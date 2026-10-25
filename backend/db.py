@@ -359,6 +359,8 @@ def run_migrations(conn):
         "ALTER TABLE email_outreach ADD COLUMN posted_at TEXT",
         "ALTER TABLE email_outreach ADD COLUMN skills_json TEXT",
         "ALTER TABLE pipeline_leads ADD COLUMN application_id INTEGER REFERENCES applications(id)",
+        # Post-apply outcome from inbox tracking (status keeps its CHECK constraint)
+        "ALTER TABLE applications ADD COLUMN outcome TEXT",
     ]
     for sql in migrations:
         try:

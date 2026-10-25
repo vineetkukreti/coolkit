@@ -20,6 +20,7 @@ import AITools from './pages/AITools'
 import SkillsIntelligence from './pages/SkillsIntelligence'
 import SettingsPage from './pages/Settings'
 import Logs from './pages/Logs'
+import JobInbox from './pages/JobInbox'
 import { api } from './lib/api'
 import { AlertTriangle, X } from 'lucide-react'
 
@@ -120,6 +121,7 @@ function AppShell() {
             <Route path="/find" element={<FindJobs />} />
             <Route path="/apply" element={<ApplyPage />} />
             <Route path="/outreach" element={<OutreachPage />} />
+            <Route path="/inbox" element={<JobInbox />} />
             <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/pipeline/:id" element={<LeadDetail />} />
             <Route path="/insights" element={<InsightsPage />} />

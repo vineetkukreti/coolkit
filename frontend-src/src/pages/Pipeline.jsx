@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from "react";
+
+const COLUMN_PAGE = 25;   // cards rendered per kanban column before "load more"
+const LIST_PAGE = 50;     // rows per page in list view
 import { useNavigate } from "react-router-dom";
 import {
   GitBranch, RefreshCw, SlidersHorizontal, LayoutGrid, List,
   Mail, CheckCircle, Clock, AlertCircle, XCircle, Award, Search, X, Users,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -188,6 +192,18 @@ function KanbanCard({ lead, onClick, onStageChange }) {
 function KanbanColumn({ stage, leads, onCardClick, onStageChange }) {
   const s = STAGES.find((st) => st.key === stage.key);
   const colLeads = leads.filter((l) => l.stage === stage.key);
+  const [shown, setShown] = useState(COLUMN_PAGE);
+  // Filters/search changed: start from the top again
+  useEffect(() => { setShown(COLUMN_PAGE); }, [colLeads.length]);
+  const visible = colLeads.slice(0, shown);
+  const remaining = colLeads.length - visible.length;
+
+  const onScroll = (e) => {
+    const el = e.currentTarget;
+    if (remaining > 0 && el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+      setShown((n) => n + COLUMN_PAGE);
+    }
+  };
 
   return (
     <div className="flex-1 min-w-[220px] bg-bg-secondary rounded-lg border border-border flex flex-col overflow-hidden">
@@ -198,13 +214,23 @@ function KanbanColumn({ stage, leads, onCardClick, onStageChange }) {
         </div>
         <span className="text-xs text-fg-muted bg-bg-tertiary rounded-full px-2 py-0.5">{colLeads.length}</span>
       </div>
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+      <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2" onScroll={onScroll}>
         {colLeads.length === 0 ? (
           <div className="text-center py-8 text-xs text-fg-muted">No leads</div>
         ) : (
-          colLeads.map((lead) => (
-            <KanbanCard key={lead.id} lead={lead} onClick={onCardClick} onStageChange={onStageChange} />
-          ))
+          <>
+            {visible.map((lead) => (
+              <KanbanCard key={lead.id} lead={lead} onClick={onCardClick} onStageChange={onStageChange} />
+            ))}
+            {remaining > 0 && (
+              <button
+                onClick={() => setShown((n) => n + COLUMN_PAGE)}
+                className="w-full py-2 text-xs font-medium text-fg-muted hover:text-accent rounded-lg border border-dashed border-border"
+              >
+                Show {Math.min(COLUMN_PAGE, remaining)} more · {remaining} left
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -242,6 +268,7 @@ export default function Pipeline() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [view, setView] = useState("board"); // board | list
+  const [listPage, setListPage] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -314,6 +341,9 @@ export default function Pipeline() {
         .filter(Boolean).join(" ").toLowerCase().includes(q))
     : leads;
   filteredLeads = applyFilters(filteredLeads, pipelineFilters.values, pipelineFilterDefs);
+  const pageCount = Math.max(1, Math.ceil(filteredLeads.length / LIST_PAGE));
+  const page = Math.min(listPage, pageCount - 1); // clamp when filters shrink the list
+  const pagedLeads = filteredLeads.slice(page * LIST_PAGE, (page + 1) * LIST_PAGE);
 
   return (
     <div className="min-h-screen bg-bg-primary text-fg-primary font-sans">
@@ -351,7 +381,7 @@ export default function Pipeline() {
         <div className="relative mb-4">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
           <input type="text" placeholder="Search leads — name, company, role, email..."
-            value={search} onChange={(e) => setSearch(e.target.value)}
+            value={search} onChange={(e) => { setSearch(e.target.value); setListPage(0); }}
             className="w-full bg-bg-secondary border border-border text-fg-primary text-sm rounded-lg pl-9 pr-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-accent placeholder:text-fg-muted" />
           {search && (
             <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-primary">
@@ -412,7 +442,7 @@ export default function Pipeline() {
           </div>
         ) : view === "board" ? (
           /* Kanban Board */
-          <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: "calc(100vh - 340px)" }}>
+          <div className="flex gap-3 overflow-x-auto pb-4" style={{ height: "calc(100vh - 340px)", minHeight: 420 }}>
             {STAGES.map((stage) => (
               <KanbanColumn key={stage.key} stage={stage} leads={filteredLeads} onCardClick={handleCardClick} onStageChange={handleStageChange} />
             ))}
@@ -425,11 +455,29 @@ export default function Pipeline() {
               <span className="w-24 text-center">Status</span>
               <span className="w-16 text-right">When</span>
             </div>
-            <div className="max-h-[calc(100vh-380px)] overflow-y-auto">
-              {filteredLeads.map((lead) => (
+            <div className="max-h-[calc(100vh-420px)] overflow-y-auto">
+              {pagedLeads.map((lead) => (
                 <ListRow key={lead.id} lead={lead} onClick={handleCardClick} />
               ))}
             </div>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-fg-muted">
+                <span>
+                  {page * LIST_PAGE + 1}–{Math.min((page + 1) * LIST_PAGE, filteredLeads.length)} of {filteredLeads.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setListPage(page - 1)} disabled={page === 0}
+                    className="p-1.5 rounded-md hover:bg-bg-tertiary disabled:opacity-30" aria-label="Previous page">
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="px-2">Page {page + 1} / {pageCount}</span>
+                  <button onClick={() => setListPage(page + 1)} disabled={page >= pageCount - 1}
+                    className="p-1.5 rounded-md hover:bg-bg-tertiary disabled:opacity-30" aria-label="Next page">
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

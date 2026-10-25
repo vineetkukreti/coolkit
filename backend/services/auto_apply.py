@@ -29,7 +29,7 @@ from db import (
 # ─── Platform budgets (daily) ─────────────────────────────────────────────
 
 PLATFORM_BUDGETS = {
-    "linkedin_easy_apply": 120,
+    "linkedin_easy_apply": 30,  # LinkedIn restricts accounts that apply much faster than this
     "email_apply": 180,
     "indeed": 30,
     "naukri": 30,
@@ -61,10 +61,15 @@ auto_apply_state = {
         "current_job": None,
     },
     "log": [],
+    "review": True,          # stop at LinkedIn's Submit button and wait for the user
+    "pending_review": None,  # {job, filled, needs_attention, since} while waiting
 }
 
 _apply_lock = threading.Lock()
 _stop_flag = threading.Event()
+_review_event = threading.Event()
+_review_decision = {"decision": None}
+REVIEW_TIMEOUT_S = 15 * 60
 
 
 def _emit(event: dict):
@@ -120,86 +125,112 @@ def _linkedin_warm_up(page, job: dict):
         pass  # Warm-up is best-effort, don't fail the application
 
 
-def _linkedin_easy_apply(page, job: dict) -> dict:
-    """Automate LinkedIn Easy Apply flow via Playwright.
-    Returns {"status": "applied"|"failed", "method": "easy_apply", "error": ...}
+_SUBMIT_SELECTOR = (
+    'button[aria-label*="Submit application"], '
+    'button[aria-label*="Submit"], '
+    'button[data-easy-apply-next-button]:has-text("Submit")'
+)
+_NEXT_SELECTOR = (
+    'button[aria-label*="Continue"], '
+    'button[aria-label*="Next"], '
+    'button[aria-label*="Review"], '
+    'button[data-easy-apply-next-button], '
+    'button:has-text("Next"), '
+    'button:has-text("Review")'
+)
+
+
+def _easy_apply_prepare(page, job: dict) -> dict:
+    """Open Easy Apply and fill every step, stopping AT the submit button (nothing is submitted).
+
+    Runs on the browser thread. Returns {"status": "ready"|"failed", "method", "filled", "error"}.
     """
     url = job.get("apply_url") or job.get("post_url", "")
     if not url or "linkedin.com" not in url:
         return {"status": "failed", "method": "easy_apply", "error": "Not a LinkedIn URL"}
+    job["_filled"] = []
 
     try:
         page.goto(url, timeout=30000, wait_until="domcontentloaded")
         time.sleep(random.uniform(2, 4))
-
-        # Warm-up: simulate reading the job description before applying
         _linkedin_warm_up(page, job)
 
-        # Look for Easy Apply button
         easy_apply_btn = page.query_selector('button[aria-label*="Easy Apply"], button.jobs-apply-button')
         if not easy_apply_btn:
             return {"status": "failed", "method": "easy_apply", "error": "No Easy Apply button found"}
-
         easy_apply_btn.click()
         time.sleep(random.uniform(2, 3))
 
-        # Handle multi-step form
-        max_steps = 8
-        for step in range(max_steps):
-            # Fill common fields (with job context for smart answers)
+        for _ in range(10):
             _fill_form_fields(page, job_context=job)
             time.sleep(random.uniform(1, 2))
 
-            # Check for submit button
-            submit_btn = page.query_selector(
-                'button[aria-label*="Submit application"], '
-                'button[aria-label*="Submit"], '
-                'button[data-easy-apply-next-button]:has-text("Submit")'
-            )
-            if submit_btn:
-                submit_btn.click()
-                time.sleep(random.uniform(2, 3))
+            submit_btn = page.query_selector(_SUBMIT_SELECTOR)
+            if submit_btn and submit_btn.is_visible():
+                return {"status": "ready", "method": "easy_apply", "filled": job["_filled"]}
 
-                # Check for success
-                success = page.query_selector(
-                    '[data-test-modal-close-btn], '
-                    'h2:has-text("applied"), '
-                    '[aria-label*="Dismiss"], '
-                    'button:has-text("Done")'
-                )
-                if success:
-                    # Close the confirmation dialog
-                    try:
-                        success.click()
-                    except Exception:
-                        pass
-                    return {"status": "applied", "method": "easy_apply"}
-                return {"status": "applied", "method": "easy_apply"}
-
-            # Click Next button for multi-step forms
-            next_btn = page.query_selector(
-                'button[aria-label*="Continue"], '
-                'button[aria-label*="Next"], '
-                'button[data-easy-apply-next-button], '
-                'button:has-text("Next"), '
-                'button:has-text("Review")'
-            )
-            if next_btn:
-                next_btn.click()
-                time.sleep(random.uniform(1.5, 2.5))
-            else:
+            next_btn = page.query_selector(_NEXT_SELECTOR)
+            if not next_btn:
                 break
+            next_btn.click()
+            time.sleep(random.uniform(1.5, 2.5))
+            # LinkedIn keeps you on the same step and shows inline errors when a required field is empty
+            if page.query_selector('.artdeco-inline-feedback--error, [data-test-form-element-error-messages]'):
+                _fill_form_fields(page, job_context=job)
+                next_btn = page.query_selector(_NEXT_SELECTOR)
+                if next_btn:
+                    next_btn.click()
+                    time.sleep(random.uniform(1.5, 2.5))
+                if page.query_selector('.artdeco-inline-feedback--error, [data-test-form-element-error-messages]'):
+                    return {"status": "failed", "method": "easy_apply", "filled": job["_filled"],
+                            "error": "Required question could not be answered"}
 
-        return {"status": "failed", "method": "easy_apply", "error": "Could not complete form steps"}
+        return {"status": "failed", "method": "easy_apply", "filled": job["_filled"], "error": "Could not reach submit step"}
 
+    except Exception as e:
+        return {"status": "failed", "method": "easy_apply", "filled": job.get("_filled", []), "error": str(e)[:200]}
+
+
+def _easy_apply_finish(page, submit: bool) -> dict:
+    """Submit the prepared application, or discard it. Runs on the browser thread."""
+    try:
+        if not submit:
+            dismiss = page.query_selector('button[aria-label="Dismiss"], button[data-test-modal-close-btn]')
+            if dismiss:
+                dismiss.click()
+                time.sleep(1)
+                discard = page.query_selector('button[data-control-name="discard_application_confirm_btn"], '
+                                              'button:has-text("Discard")')
+                if discard:
+                    discard.click()
+            return {"status": "skipped", "method": "easy_apply"}
+
+        submit_btn = page.query_selector(_SUBMIT_SELECTOR)
+        if not submit_btn:
+            return {"status": "failed", "method": "easy_apply", "error": "Submit button disappeared"}
+        submit_btn.click()
+        time.sleep(random.uniform(2.5, 3.5))
+
+        confirmed = page.query_selector(
+            'h2:has-text("application was sent"), h3:has-text("application was sent"), '
+            'h2:has-text("applied"), button:has-text("Done")'
+        )
+        if not confirmed:
+            # Don't record a success we didn't see
+            return {"status": "failed", "method": "easy_apply", "error": "Submitted but LinkedIn showed no confirmation"}
+        try:
+            close = page.query_selector('button:has-text("Done"), button[aria-label="Dismiss"]')
+            if close:
+                close.click()
+        except Exception:
+            pass
+        return {"status": "applied", "method": "easy_apply"}
     except Exception as e:
         return {"status": "failed", "method": "easy_apply", "error": str(e)[:200]}
 
 
 def _fill_form_fields(page, job_context: dict = None):
     """Fill common Easy Apply form fields from PROFILE config."""
-    # Store job context for sub-functions
-    _fill_form_fields._job_context = job_context or {}
     field_map = {
         'input[name*="phone"], input[aria-label*="phone"], input[id*="phone"]': PROFILE.get("phone", ""),
         'input[name*="city"], input[aria-label*="city"], input[id*="city"]': PROFILE.get("location", "India"),
@@ -210,7 +241,7 @@ def _fill_form_fields(page, job_context: dict = None):
             continue
         try:
             field = page.query_selector(selector)
-            if field:
+            if field and field.is_visible():
                 current = field.input_value()
                 if not current:
                     field.fill(value)
@@ -231,90 +262,57 @@ def _fill_form_fields(page, job_context: dict = None):
         pass
 
     # Handle text areas and custom questions (LLM-powered)
-    _handle_text_questions(page, job_context=getattr(_fill_form_fields, '_job_context', {}))
+    _handle_text_questions(page, job_context=job_context)
 
-    # Handle select dropdowns (experience, education, etc.)
-    _handle_dropdowns(page)
-
-    # Handle yes/no radio buttons (work authorization, sponsorship, etc.)
-    _handle_radio_buttons(page)
-
-    # Handle numeric input fields (salary, years, etc.)
-    _handle_numeric_inputs(page)
+    _handle_dropdowns(page, job_context)
+    _handle_radio_buttons(page, job_context)
+    _handle_numeric_inputs(page, job_context)
 
 
 def _handle_text_questions(page, job_context: dict = None):
-    """Fill text areas and custom text inputs using known answers + LLM.
-    LLM is only used for premium tier jobs (job._use_llm=True).
-    """
-    use_llm = (job_context or {}).get("_use_llm", False)
+    """Fill text areas and custom text inputs: answer bank -> profile -> AI (AI only for higher tiers)."""
+    skip_patterns = ["phone", "city", "email", "name", "first", "last",
+                     "zip", "postal", "address", "url", "linkedin", "github",
+                     "website", "search"]
     try:
-        textareas = page.query_selector_all('textarea')
-        for ta in textareas:
-            current = ta.input_value()
-            if current:  # Already filled
+        for el in page.query_selector_all('textarea, input[type="text"]'):
+            if not el.is_visible() or el.input_value() or el.get_attribute("role") == "combobox":
                 continue
-
-            # Get the question label
-            question = _get_field_label(page, ta)
+            question = _get_field_label(page, el)
             if not question:
                 continue
-
-            # Try known answer first (free), then LLM if tier allows
-            answer = _get_known_answer(question.lower().strip())
-            if not answer and use_llm:
-                answer = _llm_answer_question(question, job_context)
-            if answer:
-                ta.fill(answer)
-                time.sleep(random.uniform(0.3, 0.8))
-
-        # Also handle text inputs that look like custom questions
-        # (not phone, city, email, name — those are handled elsewhere)
-        skip_patterns = ["phone", "city", "email", "name", "first", "last",
-                         "zip", "postal", "address", "url", "linkedin", "github",
-                         "website", "search"]
-        inputs = page.query_selector_all('input[type="text"]')
-        for inp in inputs:
-            current = inp.input_value()
-            if current:
+            is_textarea = el.evaluate("e => e.tagName") == "TEXTAREA"
+            if not is_textarea and any(skip in question.lower() for skip in skip_patterns):
                 continue
-            label = _get_field_label(page, inp)
-            if not label:
-                continue
-            label_lower = label.lower()
-            if any(skip in label_lower for skip in skip_patterns):
-                continue
-            # Likely a custom question — answer it
-            answer = _answer_form_question(label, job_context)
-            if answer:
-                # Text inputs need shorter answers
-                inp.fill(answer[:200])
-                time.sleep(random.uniform(0.2, 0.5))
+            answer, source = _resolve_answer(question, job_context)
+            try:
+                if answer:
+                    el.fill(answer if is_textarea else answer[:200], timeout=5000)
+                    time.sleep(random.uniform(0.2, 0.6))
+            except Exception:
+                answer, source = "", "missing"
+            _record(job_context, question, answer, source)
     except Exception:
         pass
 
 
-def _handle_numeric_inputs(page):
-    """Fill numeric input fields (salary expectation, notice period, etc.)."""
+def _handle_numeric_inputs(page, job_context: dict = None):
+    """Fill numeric fields (salary, notice period, years) via the same resolver."""
     try:
-        inputs = page.query_selector_all('input[type="number"]')
-        for inp in inputs:
-            current = inp.input_value()
-            if current:
+        for inp in page.query_selector_all('input[type="number"]'):
+            if not inp.is_visible() or inp.input_value():
                 continue
-            label = _get_field_label(page, inp)
-            if not label:
+            question = _get_field_label(page, inp)
+            if not question:
                 continue
-            label_lower = label.lower()
-
-            if any(kw in label_lower for kw in ["salary", "compensation", "pay", "ctc"]):
-                inp.fill(str(PROFILE.get("desired_salary", 1200000)))
-            elif any(kw in label_lower for kw in ["notice", "days"]):
-                inp.fill(str(PROFILE.get("notice_period_days", 30)))
-            elif any(kw in label_lower for kw in ["experience", "years"]):
-                inp.fill(str(PROFILE.get("experience_years", 2)))
-            elif any(kw in label_lower for kw in ["gpa", "cgpa", "grade"]):
-                inp.fill("8")
+            answer, source = _resolve_answer(question, job_context)
+            number = re.search(r"\d+(?:\.\d+)?", answer or "")
+            if number:
+                try:
+                    inp.fill(number.group(0), timeout=5000)
+                except Exception:
+                    number = None
+            _record(job_context, question, number.group(0) if number else "", source if number else "missing")
     except Exception:
         pass
 
@@ -372,95 +370,106 @@ _answer_cache = {}
 _answer_cache_lock = threading.Lock()
 
 
-def _answer_form_question(question: str, job_context: dict = None) -> str:
-    """Generate an answer for a form question. Uses cache + known answers + LLM fallback."""
-    if not question:
+def _bank_lookup(question: str, company: str) -> str:
+    """Look the question up in the user's answer bank (answers they approved before)."""
+    try:
+        from services.answer_bank import lookup
+        conn = init_db()
+        try:
+            hit = lookup(conn, question, company)
+            conn.commit()
+            return hit["answer"] if hit else ""
+        finally:
+            conn.close()
+    except Exception:
         return ""
 
-    question_lower = question.lower().strip()
 
-    # Check cache first
-    cache_key = question_lower[:80]
-    with _answer_cache_lock:
-        if cache_key in _answer_cache:
-            return _answer_cache[cache_key]
+def _resolve_answer(question: str, job_context: dict | None, options: list | None = None) -> tuple[str, str]:
+    """Return (answer, source). Source is 'bank', 'profile' or 'ai'; ('', 'missing') if unanswerable.
 
-    # Known answers (no LLM needed)
-    answer = _get_known_answer(question_lower)
-    if answer:
-        with _answer_cache_lock:
-            _answer_cache[cache_key] = answer
-        return answer
+    With options, the answer is mapped onto one of them or dropped — never a guess outside the list.
+    """
+    from services.answer_bank import _match_option
 
-    # LLM-generated answer
-    answer = _llm_answer_question(question, job_context)
-    if answer:
-        with _answer_cache_lock:
-            _answer_cache[cache_key] = answer
-    return answer
+    job_context = job_context or {}
+    company = job_context.get("company", "")
+    candidates = [
+        (lambda: _bank_lookup(question, company), "bank"),
+        (lambda: _get_known_answer(question.lower().strip()), "profile"),
+        (lambda: _llm_answer_question(question, job_context, options), "ai"),
+    ]
+    for get, source in candidates:
+        if source == "ai" and not (job_context.get("_use_llm") or options):
+            continue
+        answer = (get() or "").strip()
+        if not answer:
+            continue
+        if options:
+            answer = _match_option(answer, options) or ""
+            if not answer:
+                continue
+        return answer, source
+    return "", "missing"
+
+
+def _record(job_context: dict | None, question: str, answer: str, source: str):
+    if job_context is not None:
+        job_context.setdefault("_filled", []).append({"question": question[:300], "answer": answer, "source": source})
+
+
+def _answer_form_question(question: str, job_context: dict = None) -> str:
+    """Backward-compatible wrapper: answer text only."""
+    return _resolve_answer(question, job_context)[0]
 
 
 def _get_known_answer(question_lower: str) -> str:
-    """Return known answers for common form questions without calling LLM."""
-    name = PROFILE["name"]
-    exp = PROFILE.get("experience_years", 2)
+    """Answers that come straight from the profile (no LLM). Empty string when the profile doesn't say."""
+    exp = PROFILE.get("experience_years")
+    needs_visa = str(PROFILE.get("require_visa", "")).strip()
 
-    # Salary / compensation
-    if any(kw in question_lower for kw in ["salary", "compensation", "expected ctc", "pay expectation"]):
-        return str(PROFILE.get("desired_salary", 1200000))
-
-    # Notice period
-    if any(kw in question_lower for kw in ["notice period", "days to join", "when can you start"]):
-        return f"{PROFILE.get('notice_period_days', 30)} days"
-
-    # Years of experience
-    if any(kw in question_lower for kw in ["years of experience", "total experience", "how many years"]):
-        return str(exp)
-
-    # Work authorization
-    if any(kw in question_lower for kw in ["authorized to work", "work authorization", "legally authorized"]):
-        return "Yes"
-
-    # Sponsorship
     if any(kw in question_lower for kw in ["sponsorship", "require visa", "need visa"]):
-        return "No"
-
-    # Relocation
-    if any(kw in question_lower for kw in ["willing to relocate", "open to relocation"]):
-        return "Yes"
-
-    # LinkedIn
+        return needs_visa or ""
+    if any(kw in question_lower for kw in ["authorized to work", "work authorization", "legally authorized", "eligible to work"]):
+        # Only answer when the profile says no sponsorship is needed; otherwise leave it for review
+        return "Yes" if needs_visa.lower() == "no" else ""
+    if any(kw in question_lower for kw in ["salary", "compensation", "expected ctc", "pay expectation"]):
+        return str(PROFILE["desired_salary"]) if PROFILE.get("desired_salary") else ""
+    if "current ctc" in question_lower or "current salary" in question_lower:
+        return str(PROFILE["current_salary"]) if PROFILE.get("current_salary") else ""
+    if any(kw in question_lower for kw in ["notice period", "days to join", "when can you start"]):
+        return f"{PROFILE['notice_period_days']}" if PROFILE.get("notice_period_days") is not None else ""
+    if any(kw in question_lower for kw in ["years of experience", "total experience", "how many years"]):
+        # Only total experience — "years of experience with Kubernetes" is skill-specific, leave it to bank/AI
+        return str(exp) if exp and not re.search(r"\b(with|in|using)\b", question_lower) else ""
+    if any(kw in question_lower for kw in ["willing to relocate", "open to relocation", "relocate"]):
+        return PROFILE.get("willing_to_relocate", "")
     if "linkedin" in question_lower:
         return PROFILE.get("linkedin", "")
-
-    # GitHub / portfolio
-    if any(kw in question_lower for kw in ["github", "portfolio", "personal website"]):
+    if "github" in question_lower:
         return PROFILE.get("github", "")
-
-    # How did you hear
+    if any(kw in question_lower for kw in ["portfolio", "personal website"]):
+        return PROFILE.get("website", "") or PROFILE.get("github", "")
     if any(kw in question_lower for kw in ["how did you hear", "where did you find", "how did you learn"]):
         return "LinkedIn"
-
-    # Current company
     if any(kw in question_lower for kw in ["current company", "current employer", "present company"]):
         return PROFILE.get("employer", "")
-
-    # Current title
     if any(kw in question_lower for kw in ["current title", "current role", "job title"]):
-        return PROFILE.get("current_title", "AI Engineer")
-
-    # Education
+        return PROFILE.get("current_title", "")
     if any(kw in question_lower for kw in ["highest education", "degree", "qualification"]):
-        return PROFILE.get("education_level", "Bachelor's Degree")
-
-    # Gender / diversity (decline)
-    if any(kw in question_lower for kw in ["gender", "ethnicity", "race", "disability", "veteran"]):
-        return "Decline to self-identify"
-
+        return PROFILE.get("education_level", "")
+    if "gender" in question_lower:
+        return PROFILE.get("gender", "")
+    if any(kw in question_lower for kw in ["ethnicity", "race"]):
+        return PROFILE.get("ethnicity", "")
+    if "disability" in question_lower:
+        return PROFILE.get("disability_status", "")
+    if "veteran" in question_lower:
+        return PROFILE.get("veteran_status", "")
     return ""
 
 
-def _llm_answer_question(question: str, job_context: dict = None) -> str:
+def _llm_answer_question(question: str, job_context: dict = None, options: list | None = None) -> str:
     """Use Gemini to answer a custom form question based on profile + job context."""
     try:
         from services.ai_tools import _call_gemini
@@ -475,6 +484,7 @@ def _llm_answer_question(question: str, job_context: dict = None) -> str:
         prompt = f"""Answer this job application form question concisely (2-4 sentences max).
 
 QUESTION: {question}
+{("OPTIONS (reply with exactly one of these): " + " | ".join(options)) if options else ""}
 
 CANDIDATE:
 {profile_ctx}
@@ -494,7 +504,7 @@ Answer:"""
         answer = _call_gemini(prompt, max_tokens=200, temperature=0.4)
         # Clean up
         answer = answer.strip().strip('"').strip("'")
-        if answer and len(answer) > 10:
+        if answer and (options or len(answer) > 10):
             return answer
 
     except Exception:
@@ -502,55 +512,53 @@ Answer:"""
     return ""
 
 
-def _handle_dropdowns(page):
-    """Handle select/dropdown fields in Easy Apply forms."""
+def _handle_dropdowns(page, job_context: dict = None):
+    """Answer <select> questions; the answer must be one of the real options or it's left for review."""
     try:
-        selects = page.query_selector_all('select')
-        for select in selects:
-            label = select.get_attribute("aria-label") or ""
-            label_lower = label.lower()
-
-            if any(kw in label_lower for kw in ["experience", "years"]):
-                # Select the closest match to our experience
-                options = select.query_selector_all('option')
-                for opt in options:
-                    text = opt.inner_text().lower()
-                    if "2" in text or "1-3" in text or "1" in text:
-                        select.select_option(value=opt.get_attribute("value"))
-                        break
-
-            elif any(kw in label_lower for kw in ["education", "degree"]):
-                options = select.query_selector_all('option')
-                for opt in options:
-                    text = opt.inner_text().lower()
-                    if "bachelor" in text:
-                        select.select_option(value=opt.get_attribute("value"))
-                        break
+        for select in page.query_selector_all('select'):
+            if not select.is_visible():
+                continue
+            current = select.evaluate("s => s.selectedIndex > 0 || (s.value && !/select an option/i.test(s.options[s.selectedIndex]?.text || ''))")
+            if current:
+                continue
+            question = _get_field_label(page, select)
+            options = [o for o in select.evaluate(
+                "s => [...s.options].filter(o => o.value && !/select an option/i.test(o.text)).map(o => o.text.trim())") if o]
+            if not question or not options:
+                continue
+            answer, source = _resolve_answer(question, job_context, options)
+            try:
+                if answer:
+                    select.select_option(label=answer, timeout=5000)
+            except Exception:
+                answer, source = "", "missing"
+            _record(job_context, question, answer, source)
     except Exception:
         pass
 
 
-def _handle_radio_buttons(page):
-    """Handle yes/no radio buttons (work authorization, relocate, etc.)."""
+def _handle_radio_buttons(page, job_context: dict = None):
+    """Answer radio-group questions (fieldsets) the same way as dropdowns."""
     try:
-        fieldsets = page.query_selector_all('fieldset')
-        for fs in fieldsets:
-            legend = fs.query_selector('legend, label, span')
-            if not legend:
+        for fs in page.query_selector_all('fieldset'):
+            if not fs.is_visible():
                 continue
-            text = legend.inner_text().lower()
-
-            # Default to "Yes" for most questions (willing to relocate, authorized, etc.)
-            if any(kw in text for kw in ["authorized", "relocate", "willing", "eligible", "legally"]):
-                yes_radio = fs.query_selector('input[value="Yes"], input[value="yes"], label:has-text("Yes") input')
-                if yes_radio:
-                    yes_radio.click()
-
-            # Default to "No" for sponsorship questions
-            elif any(kw in text for kw in ["sponsor", "visa"]):
-                no_radio = fs.query_selector('input[value="No"], input[value="no"], label:has-text("No") input')
-                if no_radio:
-                    no_radio.click()
+            radios = fs.query_selector_all('input[type="radio"]')
+            if not radios or any(r.is_checked() for r in radios):
+                continue
+            legend = fs.query_selector('legend')
+            question = (legend.inner_text() if legend else "").strip()
+            labels = fs.evaluate("""f => [...f.querySelectorAll('input[type=radio]')].map(r =>
+                (r.id && f.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.textContent || r.value || '').trim())""")
+            if not question or not labels:
+                continue
+            answer, source = _resolve_answer(question, job_context, labels)
+            try:
+                if answer:
+                    radios[labels.index(answer)].check(force=True, timeout=5000)
+            except Exception:
+                answer, source = "", "missing"
+            _record(job_context, question, answer, source)
     except Exception:
         pass
 
@@ -811,6 +819,66 @@ class AutoApplyEngine:
 
         return "redirect"
 
+    def _easy_apply(self, job: dict) -> dict:
+        """Fill the Easy Apply form on the browser thread, then submit (or wait for the user's review)."""
+        from services.browser_service import _run_on_browser_thread
+        from worker_ctx import current_uid, run_with_user
+
+        uid = current_uid()
+        on_browser = lambda fn, *args: _run_on_browser_thread(run_with_user(uid, fn, *args), timeout=300)
+
+        prepared = on_browser(_easy_apply_prepare, self.page, job)
+        if prepared["status"] != "ready":
+            return prepared
+
+        with _apply_lock:
+            review = auto_apply_state["review"]
+        if not review:
+            return on_browser(_easy_apply_finish, self.page, True)
+
+        filled = prepared.get("filled", [])
+        needs_attention = [f for f in filled if f["source"] in ("ai", "missing")]
+        _review_event.clear()
+        _review_decision["decision"] = None
+        with _apply_lock:
+            auto_apply_state["status"] = "awaiting_review"
+            auto_apply_state["pending_review"] = {
+                "job": {"title": job.get("role", ""), "company": job.get("company", ""),
+                        "url": job.get("apply_url") or job.get("post_url", ""), "smart_score": job.get("smart_score")},
+                "filled": filled,
+                "needs_attention": len(needs_attention),
+                "since": datetime.now().isoformat(),
+            }
+        _emit({"type": "info", "message": f"Waiting for your review: {job.get('role', '?')[:30]} at {job.get('company', '?')[:25]}"})
+
+        # Wake up periodically so Stop still works while waiting
+        waited = 0
+        while not _review_event.wait(timeout=2):
+            waited += 2
+            if _stop_flag.is_set() or waited >= REVIEW_TIMEOUT_S:
+                break
+        decision = _review_decision["decision"] or "skip"
+
+        with _apply_lock:
+            auto_apply_state["pending_review"] = None
+            if auto_apply_state["status"] == "awaiting_review":
+                auto_apply_state["status"] = "running"
+
+        result = on_browser(_easy_apply_finish, self.page, decision == "submit")
+        if result["status"] == "applied":
+            self._remember_answers(job, filled)
+        elif decision != "submit":
+            result["error"] = "Skipped in review" if _review_decision["decision"] else "Review timed out"
+        return result
+
+    def _remember_answers(self, job: dict, filled: list):
+        """Answers on an application the user approved become their answers for next time."""
+        try:
+            from services.answer_bank import remember
+            remember(self.conn, [f for f in filled if f.get("answer")], company=job.get("company", ""))
+        except Exception:
+            pass
+
     def apply_one(self, job: dict) -> dict:
         """Apply to a single job with effort scaled by smart_score tier."""
         url = job.get("post_url") or job.get("apply_url") or ""
@@ -843,7 +911,7 @@ class AutoApplyEngine:
         job["_use_llm"] = tier.get("use_llm_answers", False) if tier else False
 
         if method == "linkedin_easy_apply":
-            result = _linkedin_easy_apply(self.page, job)
+            result = self._easy_apply(job)
         elif method == "email_apply":
             result = _email_apply(self.conn, job)
         else:
@@ -969,12 +1037,25 @@ class AutoApplyEngine:
                 on_complete(auto_apply_state["progress"])
 
 
-def start_auto_apply(max_applications: int = 500, user_id=None):
+def submit_review(decision: str) -> dict:
+    """User's decision on the application waiting for review: 'submit' or 'skip'."""
+    if decision not in ("submit", "skip"):
+        return {"status": "error", "message": "decision must be 'submit' or 'skip'"}
+    with _apply_lock:
+        if not auto_apply_state["pending_review"]:
+            return {"status": "error", "message": "Nothing is waiting for review"}
+    _review_decision["decision"] = decision
+    _review_event.set()
+    return {"status": "ok", "decision": decision}
+
+
+def start_auto_apply(max_applications: int = 500, user_id=None, review: bool = True):
     """Start auto-apply in a background thread."""
     with _apply_lock:
         if auto_apply_state["running"]:
             return {"error": "Auto-apply already running"}
         auto_apply_state["running"] = True
+        auto_apply_state["review"] = review
 
     from services.browser_service import browser_state
     from worker_ctx import run_with_user
@@ -1011,5 +1092,7 @@ def get_auto_apply_status() -> dict:
             "status": auto_apply_state["status"],
             "started_at": auto_apply_state["started_at"],
             "progress": auto_apply_state["progress"].copy(),
+            "review": auto_apply_state["review"],
+            "pending_review": auto_apply_state["pending_review"],
             "log": auto_apply_state["log"][-100:],
         }

@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Search, Zap, Mail, GitBranch, BarChart3, Sparkles, Settings, Brain, Terminal, LogOut,
+  LayoutDashboard, Search, Zap, Mail, GitBranch, BarChart3, Sparkles, Settings, Brain, Terminal, LogOut, Inbox,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -8,6 +8,7 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/find', icon: Search, label: 'Find Jobs' },
   { to: '/apply', icon: Zap, label: 'Apply' },
+  { to: '/inbox', icon: Inbox, label: 'Job Inbox' },
   { to: '/outreach', icon: Mail, label: 'Outreach' },
   { to: '/pipeline', icon: GitBranch, label: 'Pipeline' },
   { to: '/insights', icon: BarChart3, label: 'Insights' },

@@ -127,7 +127,7 @@ Company: {company or "(unknown)"}   Role: {role or "(unknown)"}
 {listing}
 
 ━━━ RULES ━━━
-- For select/radio/checkbox, "answer" MUST be copied exactly from options (checkbox: options joined with " | ").
+- For select/combo/radio/checkbox, "answer" MUST be copied exactly from options (checkbox: options joined with " | ").
 - Free text: first person, specific, 40-120 words for open questions, a few words for factual ones.
 - Never claim a skill, license, degree or authorization the profile doesn't show. If unknown, set confidence "low".
 

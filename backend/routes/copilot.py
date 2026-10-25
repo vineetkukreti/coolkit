@@ -126,3 +126,32 @@ def api_delete_answer(answer_id: int):
     if not delete_answer(_get_db(), answer_id):
         return _bad("not found", 404)
     return {"status": "ok"}
+
+
+# ── Job inbox ───────────────────────────────────────────────────────────────
+
+@router.get("/api/inbox/emails")
+def api_inbox_emails(type: str = "", include_handled: bool = False):
+    from services.inbox_tracker import list_job_emails
+    emails = list_job_emails(_get_db(), email_type=type, include_handled=include_handled)
+    return {"status": "ok", "emails": emails, "total": len(emails)}
+
+
+@router.post("/api/inbox/emails/{email_id}/handled")
+def api_inbox_email_handled(email_id: int, req: dict | None = None):
+    from services.inbox_tracker import set_job_email_handled
+    if not set_job_email_handled(_get_db(), email_id, (req or {}).get("handled", True)):
+        return _bad("not found", 404)
+    return {"status": "ok"}
+
+
+@router.post("/api/inbox/emails/{email_id}/draft-reply")
+def api_inbox_draft_reply(email_id: int):
+    from services.career_copilot import draft_email_reply
+    from services.inbox_tracker import _ensure_job_emails_table
+    conn = _get_db()
+    _ensure_job_emails_table(conn)
+    row = conn.execute("SELECT subject, preview, type, from_addr FROM job_emails WHERE id = ?", (email_id,)).fetchone()
+    if not row:
+        return _bad("not found", 404)
+    return _llm_result(draft_email_reply(row["subject"], row["preview"], row["type"], row["from_addr"]))

@@ -164,15 +164,16 @@ def _match_to_application(conn, from_addr: str, subject: str, body: str) -> dict
 
     # Strategy 1: Match by company name in applications table
     apps = conn.execute(
-        "SELECT id, post_id, job_title, company, status, applied_at FROM applications WHERE status = 'applied' ORDER BY applied_at DESC"
+        "SELECT id, post_id, job_title, company, status, outcome, applied_at FROM applications WHERE status = 'applied' ORDER BY applied_at DESC"
     ).fetchall()
 
     for app in apps:
         company = (app["company"] or "").lower()
         job_title = (app["job_title"] or "").lower()
-        if company and len(company) > 2 and company in text:
+        # Whole-word match so "Meta" doesn't match "metadata"
+        if company and len(company) > 2 and re.search(rf"\b{re.escape(company)}\b", text):
             return dict(app)
-        if job_title and len(job_title) > 5 and job_title in text:
+        if job_title and len(job_title) > 5 and re.search(rf"\b{re.escape(job_title)}\b", text):
             return dict(app)
 
     # Strategy 2: Match by domain in from_addr
@@ -187,8 +188,71 @@ def _match_to_application(conn, from_addr: str, subject: str, body: str) -> dict
     return None
 
 
+# Outcome on applications.outcome only ever moves up this ladder
+_OUTCOME_RANK = {None: 0, "interviewing": 1, "rejected": 2, "offer": 3}
+_TYPE_TO_OUTCOME = {"interview": "interviewing", "rejection": "rejected", "offer": "offer"}
+_TYPE_TO_STAGE = {"interview": "interviewing", "rejection": "rejected", "offer": "offer"}
+_STAGE_RANK = {"applied": 0, "replied": 1, "interviewing": 2, "rejected": 3, "offer": 4}
+
+
+def _ensure_job_emails_table(conn):
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS job_emails (
+               id              INTEGER PRIMARY KEY AUTOINCREMENT,
+               message_id      TEXT UNIQUE,
+               from_addr       TEXT,
+               subject         TEXT,
+               preview         TEXT,
+               type            TEXT,
+               confidence      TEXT,
+               application_id  INTEGER REFERENCES applications(id) ON DELETE SET NULL,
+               company         TEXT,
+               received_at     TEXT,
+               handled         INTEGER DEFAULT 0,
+               created_at      TEXT DEFAULT (datetime('now'))
+           )"""
+    )
+
+
+def record_job_email(conn, message_id: str, from_addr: str, subject: str, body: str,
+                     received_at: str = "") -> dict | None:
+    """Classify one email, store it, and advance the matched application/pipeline lead.
+
+    Returns the stored entry, or None if the email isn't job-related or was already recorded.
+    """
+    _ensure_job_emails_table(conn)
+    classification = classify_inbox_email(subject, body, from_addr)
+    if classification["type"] not in ("rejection", "offer", "interview", "confirmation"):
+        return None
+    if message_id and conn.execute("SELECT 1 FROM job_emails WHERE message_id = ?", (message_id,)).fetchone():
+        return None
+
+    matched = _match_to_application(conn, from_addr, subject, body)
+    conn.execute(
+        """INSERT INTO job_emails (message_id, from_addr, subject, preview, type, confidence,
+                                   application_id, company, received_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (message_id or None, from_addr, subject, body[:2000], classification["type"], classification["confidence"],
+         matched["id"] if matched else None, matched["company"] if matched else None, received_at),
+    )
+
+    if matched and classification["confidence"] in ("high", "medium"):
+        outcome = _TYPE_TO_OUTCOME.get(classification["type"])
+        if outcome and _OUTCOME_RANK[outcome] > _OUTCOME_RANK.get(matched.get("outcome"), 0):
+            conn.execute("UPDATE applications SET outcome = ? WHERE id = ?", (outcome, matched["id"]))
+        stage = _TYPE_TO_STAGE.get(classification["type"])
+        if stage and matched.get("post_id"):
+            lead = conn.execute("SELECT id, stage FROM pipeline_leads WHERE post_id = ?", (matched["post_id"],)).fetchone()
+            if lead and _STAGE_RANK[stage] > _STAGE_RANK.get(lead["stage"], 0):
+                conn.execute("UPDATE pipeline_leads SET stage = ?, updated_at = datetime('now') WHERE id = ?",
+                             (stage, lead["id"]))
+    conn.commit()
+    return {"from": from_addr, "subject": subject, "type": classification["type"],
+            "confidence": classification["confidence"], "body_preview": body[:200], "matched_application": matched}
+
+
 def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
-    """Scan inbox for application-related emails and auto-update statuses."""
+    """Scan inbox for application-related emails, store them, and auto-update statuses."""
     imap_user = IMAP_CONFIG["user"]
     imap_pass = IMAP_CONFIG["password"]
 
@@ -200,110 +264,54 @@ def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
         since_date = dt.strftime("%d-%b-%Y")
 
     conn = init_db()
+    results = []
+    updated = {"confirmations": 0, "rejections": 0, "interviews": 0, "offers": 0}
+    counter_key = {"confirmation": "confirmations", "rejection": "rejections", "interview": "interviews", "offer": "offers"}
+    msg_ids = []
 
     try:
         mail = imaplib.IMAP4_SSL(IMAP_CONFIG["host"], IMAP_CONFIG["port"], timeout=30)
         mail.login(imap_user, imap_pass)
         mail.select("INBOX", readonly=True)
 
-        # Search for recent emails
         status, data = mail.search(None, f'(SINCE {since_date})')
         if status != "OK" or not data[0]:
-            return {"status": "ok", "scanned": 0, "found": []}
+            return {"status": "ok", "scanned": 0, "found": [], "updated": updated}
 
-        msg_ids = data[0].split()
-        # Process most recent first
-        msg_ids = list(reversed(msg_ids[-limit:]))
-
-        results = []
-        updated = {"confirmations": 0, "rejections": 0, "interviews": 0, "offers": 0}
+        # Most recent first
+        msg_ids = list(reversed(data[0].split()[-limit:]))
 
         for msg_id in msg_ids:
             try:
                 status, msg_data = mail.fetch(msg_id, "(RFC822.HEADER)")
-                if status != "OK" or not msg_data or not msg_data[0]:
+                if status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                     continue
+                header = email_lib.message_from_bytes(msg_data[0][1])
+                from_addr = _decode_header(header.get("From", "")).lower()
+                subject = _decode_header(header.get("Subject", ""))
 
-                raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
-                if not isinstance(raw, bytes):
-                    continue
-
-                msg = email_lib.message_from_bytes(raw)
-                from_addr = _decode_header(msg.get("From", "")).lower()
-                subject = _decode_header(msg.get("Subject", ""))
-
-                # Quick pre-filter: process career-portal-like emails OR any email that
-                # contains strong interview/offer/rejection signals. This catches recruiter
-                # and company-direct emails that don't come from a known career portal.
+                # Cheap pre-filter on headers only — the body isn't fetched yet.
                 is_career_portal = any(p in from_addr for p in CAREER_PORTAL_SENDERS)
-                has_strong_signal = any(
-                    p in (subject + " " + body).lower()
-                    for p in (INTERVIEW_PATTERNS + OFFER_PATTERNS + REJECTION_PATTERNS)
-                )
-                if not is_career_portal and not has_strong_signal:
+                subject_lower = subject.lower()
+                has_signal = any(p in subject_lower for p in
+                                 INTERVIEW_PATTERNS + OFFER_PATTERNS + REJECTION_PATTERNS + CONFIRMATION_PATTERNS)
+                if not is_career_portal and not has_signal:
                     continue
 
-                # Fetch full body for classification
                 status2, full_data = mail.fetch(msg_id, "(RFC822)")
-                if status2 != "OK" or not full_data or not full_data[0]:
+                if status2 != "OK" or not full_data or not isinstance(full_data[0], tuple):
                     continue
-                raw_full = full_data[0][1] if isinstance(full_data[0], tuple) else full_data[0]
-                full_msg = email_lib.message_from_bytes(raw_full)
-                body = _extract_body(full_msg)[:1000]
+                full_msg = email_lib.message_from_bytes(full_data[0][1])
+                body = _extract_body(full_msg)[:2000]
 
-                classification = classify_inbox_email(subject, body, from_addr)
-
-                if classification["type"] in ("rejection", "offer", "interview", "confirmation"):
-                    # Try to match to an application
-                    matched_app = _match_to_application(conn, from_addr, subject, body)
-
-                    entry = {
-                        "from": from_addr,
-                        "subject": subject,
-                        "type": classification["type"],
-                        "confidence": classification["confidence"],
-                        "body_preview": body[:200],
-                        "matched_application": matched_app,
-                    }
+                entry = record_job_email(conn, header.get("Message-ID", "").strip(), from_addr, subject, body,
+                                         header.get("Date", ""))
+                if entry:
                     results.append(entry)
-
-                    # Auto-update application status if matched
-                    if matched_app and classification["confidence"] in ("high", "medium"):
-                        app_id = matched_app["id"]
-                        if classification["type"] == "rejection":
-                            conn.execute("UPDATE applications SET status = 'rejected' WHERE id = ? AND status = 'applied'", (app_id,))
-                            updated["rejections"] += 1
-                        elif classification["type"] == "interview":
-                            conn.execute("UPDATE applications SET status = 'interviewing' WHERE id = ? AND status = 'applied'", (app_id,))
-                            updated["interviews"] += 1
-                        elif classification["type"] == "offer":
-                            # applications.status has no 'offer' value (CHECK constraint),
-                            # so the offer is reflected on the pipeline lead only.
-                            updated["offers"] += 1
-                        elif classification["type"] == "confirmation":
-                            updated["confirmations"] += 1
-
-                        # Also update pipeline_leads if exists
-                        if classification["type"] == "rejection":
-                            conn.execute(
-                                "UPDATE pipeline_leads SET stage = 'rejected', updated_at = datetime('now') WHERE post_id = ? AND stage = 'applied'",
-                                (matched_app.get("post_id"),)
-                            )
-                        elif classification["type"] == "offer":
-                            # An offer is the top outcome — advance from any non-offer stage.
-                            conn.execute(
-                                "UPDATE pipeline_leads SET stage = 'offer', updated_at = datetime('now') WHERE post_id = ? AND stage != 'offer'",
-                                (matched_app.get("post_id"),)
-                            )
-                        elif classification["type"] == "interview":
-                            conn.execute(
-                                "UPDATE pipeline_leads SET stage = 'interviewing', updated_at = datetime('now') WHERE post_id = ? AND stage IN ('applied', 'replied')",
-                                (matched_app.get("post_id"),)
-                            )
-
-                        conn.commit()
-
-            except Exception:
+                    if entry["matched_application"]:
+                        updated[counter_key[entry["type"]]] += 1
+            except Exception as exc:
+                print(f"[inbox] skipped message {msg_id!r}: {exc}")
                 continue
 
         mail.close()
@@ -320,3 +328,25 @@ def scan_inbox(since_date: str = None, limit: int = 200) -> dict:
         "found": results,
         "updated": updated,
     }
+
+
+def list_job_emails(conn, email_type: str = "", include_handled: bool = False, limit: int = 200) -> list:
+    _ensure_job_emails_table(conn)
+    sql = """SELECT e.*, a.job_title, a.job_url FROM job_emails e
+             LEFT JOIN applications a ON a.id = e.application_id WHERE 1 = 1"""
+    args = []
+    if email_type:
+        sql += " AND e.type = ?"
+        args.append(email_type)
+    if not include_handled:
+        sql += " AND e.handled = 0"
+    sql += " ORDER BY e.id DESC LIMIT ?"
+    args.append(limit)
+    return [dict(r) for r in conn.execute(sql, args).fetchall()]
+
+
+def set_job_email_handled(conn, email_id: int, handled: bool = True) -> bool:
+    _ensure_job_emails_table(conn)
+    cur = conn.execute("UPDATE job_emails SET handled = ? WHERE id = ?", (int(handled), email_id))
+    conn.commit()
+    return cur.rowcount > 0

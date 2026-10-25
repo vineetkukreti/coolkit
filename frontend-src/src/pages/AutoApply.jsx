@@ -1,11 +1,66 @@
 import { useState, useEffect, useRef } from 'react'
-import { Play, Square, Zap, Target, CheckCircle, XCircle, Clock, TrendingUp } from 'lucide-react'
+import { Play, Square, Zap, Target, CheckCircle, XCircle, Clock, TrendingUp, Eye, Send, SkipForward, ExternalLink } from 'lucide-react'
 import { api } from '../lib/api'
+
+const SOURCE_STYLE = {
+  bank: ['Your answer', 'text-success'],
+  profile: ['Profile', 'text-success'],
+  ai: ['AI — check', 'text-warning'],
+  missing: ['Not answered', 'text-danger'],
+}
+
+function ReviewCard({ review, onDecide, busy }) {
+  const { job, filled = [], needs_attention: needsAttention } = review
+  return (
+    <div className="bg-bg-secondary border-2 border-accent rounded-2xl p-5 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-accent flex items-center gap-1.5"><Eye size={12} /> Waiting for your review</div>
+          <div className="text-lg font-semibold text-fg-primary mt-1">{job.title} <span className="text-fg-muted font-normal">at {job.company}</span></div>
+          {job.url && (
+            <a href={job.url} target="_blank" rel="noreferrer" className="text-xs text-accent inline-flex items-center gap-1 mt-0.5">
+              View job <ExternalLink size={11} />
+            </a>
+          )}
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => onDecide('submit')} disabled={busy}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent text-white text-sm font-semibold disabled:opacity-50">
+            <Send size={14} /> Submit
+          </button>
+          <button onClick={() => onDecide('skip')} disabled={busy}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border text-sm text-fg-muted hover:text-fg-primary disabled:opacity-50">
+            <SkipForward size={14} /> Skip
+          </button>
+        </div>
+      </div>
+      <p className="text-xs text-fg-muted">
+        The form is open in the coolkit browser window. Fix anything there, then click Submit here.
+        {needsAttention > 0 && <b className="text-warning"> {needsAttention} answer{needsAttention > 1 ? 's' : ''} need a look.</b>}
+      </p>
+      {filled.length > 0 && (
+        <div className="divide-y divide-border border border-border rounded-xl overflow-hidden">
+          {filled.map((f, i) => {
+            const [label, cls] = SOURCE_STYLE[f.source] || [f.source, 'text-fg-muted']
+            return (
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-3 px-3 py-2 text-sm">
+                <span className="text-fg-secondary">{f.question}</span>
+                <span className="text-fg-primary break-words">{f.answer || '—'}</span>
+                <span className={`text-xs font-medium ${cls}`}>{label}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function AutoApply() {
   const [status, setStatus] = useState(null)
   const [quota, setQuota] = useState(null)
-  const [maxApps, setMaxApps] = useState(500)
+  const [maxApps, setMaxApps] = useState(30)
+  const [deciding, setDeciding] = useState(false)
   const [loading, setLoading] = useState(false)
   const logRef = useRef(null)
 
@@ -45,6 +100,17 @@ export default function AutoApply() {
     setLoading(false)
   }
 
+  const handleDecision = async (decision) => {
+    setDeciding(true)
+    try {
+      await api.reviewAutoApply(decision)
+      setTimeout(fetchStatus, 1000)
+    } catch (e) {
+      /* silent */
+    }
+    setDeciding(false)
+  }
+
   const handleStop = async () => {
     setLoading(true)
     try {
@@ -79,7 +145,7 @@ export default function AutoApply() {
             Auto-Apply Engine
           </h2>
           <p className="text-sm text-fg-muted mt-1 ml-[42px]">
-            Automated job applications across all platforms
+            Fills each application and waits for your OK before submitting
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -118,6 +184,10 @@ export default function AutoApply() {
           )}
         </div>
       </div>
+
+      {status?.pending_review && (
+        <ReviewCard review={status.pending_review} onDecide={handleDecision} busy={deciding} />
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">

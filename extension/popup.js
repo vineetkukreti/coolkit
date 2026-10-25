@@ -95,6 +95,7 @@ function fillForm(profile) {
   let filled = 0
   for (const el of document.querySelectorAll('input:not([type=hidden]):not([type=file]):not([type=checkbox]):not([type=radio]), textarea, select')) {
     if (el.disabled || el.readOnly || (el.value && el.tagName !== 'SELECT')) continue
+    if (el.getAttribute('role') === 'combobox') continue // custom dropdowns are handled by fillCombos
     const label = labelFor(el)
     const rule = RULES.find(([re]) => re.test(label))
     const value = rule && profile[rule[1]]
@@ -149,7 +150,8 @@ function formAgent(mode, payload) {
       if (!groups[key]) fields.push(groups[key] = { type: el.type, els: [], question: groupLabel(el) })
       groups[key].els.push(el)
     } else {
-      fields.push({ type: el.tagName === 'SELECT' ? 'select' : 'text', els: [el], question: textLabel(el) })
+      const type = el.tagName === 'SELECT' ? 'select' : el.getAttribute('role') === 'combobox' ? 'combo' : 'text'
+      fields.push({ type, els: [el], question: textLabel(el) })
     }
   }
   // Pin ids to DOM nodes so they survive re-renders between 'collect' and 'apply'.
@@ -158,22 +160,29 @@ function formAgent(mode, payload) {
     f.id = f.els[0].dataset.ckId || ''
   })
 
+  const comboValue = (el) => clean((el.closest('[class*="control"]') || containerOf(el))
+    ?.querySelector('[class*="single-value"], [class*="singleValue"], [class*="multi-value__label"]')?.textContent)
   const answered = (f) => {
     if (f.type === 'radio' || f.type === 'checkbox') return f.els.some((e) => e.checked)
+    if (f.type === 'combo') return !!comboValue(f.els[0])
     const el = f.els[0]
     return el.tagName === 'SELECT' ? !!el.value && el.selectedIndex > 0 : !!el.value.trim()
   }
   const options = (f) => f.type === 'select'
     ? [...f.els[0].options].filter((o) => o.value).map((o) => clean(o.text))
-    : f.type === 'text' ? [] : f.els.map(optionLabel)
+    : f.type === 'text' || f.type === 'combo' ? [] : f.els.map(optionLabel)
   const valueOf = (f) => {
     if (f.type === 'select') return clean(f.els[0].selectedOptions[0]?.text)
     if (f.type === 'text') return f.els[0].value.trim()
+    if (f.type === 'combo') return comboValue(f.els[0])
     return f.els.filter((e) => e.checked).map(optionLabel).join(' | ')
   }
 
+  // Legal consents/attestations are never answered on the user's behalf
+  const LEGAL = /\b(agree|agreement|consent|arbitrat|attest|certify|acknowledg|terms|signature|sign here)\b/i
+
   if (mode === 'collect') {
-    return fields.filter((f) => !answered(f) && f.question.length > 2)
+    return fields.filter((f) => !answered(f) && f.question.length > 2 && !LEGAL.test(f.question))
       .map((f) => ({ id: f.id, question: f.question.slice(0, 300), type: f.type, options: options(f).slice(0, 50) }))
   }
 
@@ -187,7 +196,7 @@ function formAgent(mode, payload) {
     const byId = Object.fromEntries(fields.map((f) => [f.id, f]))
     for (const a of payload) {
       const f = byId[a.id]
-      if (!f || answered(f)) continue
+      if (!f || f.type === 'combo' || answered(f)) continue
       const color = a.confidence === 'low' ? '#f59e0b' : a.source === 'llm' ? '#A855F7' : '#22c55e'
       if (f.type === 'select') {
         const opt = [...f.els[0].options].find((o) => clean(o.text) === a.answer)
@@ -204,6 +213,97 @@ function formAgent(mode, payload) {
     }
     return n
   }
+}
+
+// ── Custom dropdowns (react-select etc.) ignore synthetic events for OPENING the menu; options only
+// exist in the DOM while it's open. We open them with a trusted click via chrome.debugger (CDP),
+// read or click the option from script, then close. Found by inspecting a live Greenhouse form with REA.
+function comboAction(id, action, text) {
+  const el = document.querySelector(`[data-ck-id="${id}"]`)
+  if (!el) return null
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim()
+  if (action === 'locate') {
+    const control = el.closest('[class*="control"]') || el
+    control.scrollIntoView({ block: 'center', behavior: 'instant' }) // smooth scrolling would skew the rect
+    const r = control.getBoundingClientRect()
+    const x = r.left + r.width / 2, y = r.top + r.height / 2
+    // Only click if that point really lands on this control (hidden or covered widgets are skipped)
+    return control.contains(document.elementFromPoint(x, y)) ? { x, y } : null
+  }
+  const listbox = (el.getAttribute('aria-controls') && document.getElementById(el.getAttribute('aria-controls')))
+    || document.querySelector('[class*="menu"] [role="listbox"], [role="listbox"][class*="menu"]')
+  const opts = listbox ? [...listbox.querySelectorAll('[role="option"]')] : []
+  if (action === 'options') return el.getAttribute('aria-expanded') === 'true' || opts.length ? opts.map((o) => clean(o.textContent)) : null
+  if (action === 'pick') {
+    const hit = opts.find((o) => clean(o.textContent) === text)
+    if (!hit) return false
+    hit.click()
+    ;(el.closest('[class*="control"]') || el).style.outline = '2px solid #A855F7'
+    return true
+  }
+}
+
+async function withDebugger(tabId, fn) {
+  const target = { tabId }
+  await chrome.debugger.attach(target, '1.3')
+  const send = (method, params) => chrome.debugger.sendCommand(target, method, params)
+  try { return await fn(send) } finally { await chrome.debugger.detach(target).catch(() => {}) }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function trustedClick(send, { x, y }) {
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+    await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 })
+  }
+}
+
+async function pressEscape(send) {
+  for (const type of ['keyDown', 'keyUp']) {
+    await send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  }
+}
+
+// Menus render asynchronously; poll briefly instead of guessing a delay
+async function waitForOptions(id, timeoutMs = 1500) {
+  for (let t = 0; t < timeoutMs; t += 100) {
+    const opts = await runInPage(comboAction, [id, 'options'])
+    if (opts && opts.length) return opts
+    await sleep(100)
+  }
+  return []
+}
+
+// Open each combo once to read its options; returns {id: [options]}
+async function readComboOptions(tabId, combos) {
+  return withDebugger(tabId, async (send) => {
+    const out = {}
+    for (const c of combos) {
+      const pos = await runInPage(comboAction, [c.id, 'locate'])
+      if (!pos) continue
+      await trustedClick(send, pos)
+      out[c.id] = await waitForOptions(c.id)
+      await pressEscape(send)
+      await sleep(100)
+    }
+    return out
+  })
+}
+
+async function pickComboAnswers(tabId, answers) {
+  return withDebugger(tabId, async (send) => {
+    let n = 0
+    for (const a of answers) {
+      const pos = await runInPage(comboAction, [a.id, 'locate'])
+      if (!pos) continue
+      await trustedClick(send, pos)
+      await waitForOptions(a.id)
+      if (await runInPage(comboAction, [a.id, 'pick', a.answer])) n++
+      else await pressEscape(send)
+      await sleep(150)
+    }
+    return n
+  })
 }
 
 async function loadPage() {
@@ -247,6 +347,13 @@ async function autofill() {
     const { profile } = await call('/api/extension/autofill-profile')
     const basic = await runInPage(fillForm, [profile])
     const questions = await runInPage(formAgent, ['collect', null])
+    const combos = questions.filter((q) => q.type === 'combo')
+    const tab = await activeTab()
+    if (combos.length) {
+      msg(`Reading ${combos.length} dropdown(s)…`)
+      const opts = await readComboOptions(tab.id, combos)
+      combos.forEach((c) => { c.options = (opts[c.id] || []).slice(0, 50) })
+    }
     let custom = 0, fromBank = 0
     if (questions.length) {
       msg(`Answering ${questions.length} custom question(s)…`)
@@ -255,6 +362,9 @@ async function autofill() {
         body: JSON.stringify({ questions, company: $('company').value, role: $('title').value, jd_text: page.text }),
       })
       custom = await runInPage(formAgent, ['apply', res.answers])
+      const comboIds = new Set(combos.map((c) => c.id))
+      const comboAnswers = res.answers.filter((a) => comboIds.has(a.id))
+      if (comboAnswers.length) custom += await pickComboAnswers(tab.id, comboAnswers)
       fromBank = res.from_bank
     }
     const total = basic + custom

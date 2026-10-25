@@ -1,10 +1,23 @@
 {
   "manifest_version": 3,
   "name": "coolkit Copilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Save jobs to coolkit, see your ATS match score, and autofill application forms.",
-  "permissions": ["storage", "activeTab", "scripting"],
-  "host_permissions": ["http://localhost:8000/*", "http://127.0.0.1:8000/*"],
-  "optional_host_permissions": ["https://*/*"],
-  "action": { "default_popup": "popup.html", "default_title": "coolkit Copilot" }
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "debugger"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "coolkit Copilot"
+  }
 }

@@ -36,7 +36,7 @@ Clean-room study of commercial job-search tools, built from their public product
 | Real-time interview copilot | Final Round AI | Ethically grey in live interviews — skip or practice-only |
 | Resume builder with PDF templates | Kickresume, Rezi, Teal | Needs a template renderer (WeasyPrint / react-pdf) |
 | Offer comparison | Levels.fyi | `/compare-offers` skill exists; needs a UI page |
-| Workday / custom-widget dropdowns | Simplify | Non-native listboxes (`role=listbox`) aren't filled yet |
+| Workday dropdowns | Simplify | Greenhouse/react-select done (below). Workday is behind sign-in, so it hasn't been inspected yet |
 | Gmail/Calendar interview auto-scheduling sync | Huntr, Teal | `inbox_tracker` already detects interviews |
 | Live salary data | Levels.fyi, AmbitionBox | No free API; scraping is ToS-restricted |
 
@@ -54,3 +54,14 @@ coolkit's version (`services/answer_bank.py` + `extension/popup.js:formAgent`):
 3. **Learns from corrections:** "Remember my answers" saves the final form values. User answers are never overwritten by
    AI answers. Answers that name a company ("Why Acme?") are reused only for that company.
 4. **Colour-coded review:** green = your answer, purple = AI, amber = low confidence. Nothing is ever auto-submitted.
+
+## REA case study: Greenhouse custom dropdowns (2026-10-25)
+
+`rea inspect-web-page` on a live, public Greenhouse application (Anthropic's AE posting; inspected only, nothing submitted) found
+11 `role=combobox` fields (react-select): visa, relocation, EEO, country, and two arbitration consents. Follow-up probes showed:
+- Options exist in the DOM only while the menu is open (`aria-controls` → `react-select-<id>-listbox`).
+- **Opening** needs a trusted event. Synthetic mousedown/keydown/input events and calling React handlers directly all fail.
+- **Selecting** an option works with an ordinary script `click()` once the menu is open.
+
+The fix in the extension: one trusted CDP click (`chrome.debugger` → `Input.dispatchMouseEvent`) opens each menu,
+then the options are read or clicked from script. Result on the live form: all 11 menus read their options, and 10 of 11 picks stuck.

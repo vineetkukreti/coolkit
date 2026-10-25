@@ -11,3 +11,8 @@ Like Teal, Huntr and Simplify's extensions, but backed by your own coolkit serve
 3. Open the popup and sign in with your coolkit account (the API URL defaults to `http://localhost:8000`).
 
 For a deployed backend, add its origin to `host_permissions` in `manifest.json`.
+
+## Custom dropdowns (Greenhouse, Ashby, other react-select forms)
+These dropdowns ignore script-generated events, so autofill briefly attaches `chrome.debugger` to send real
+clicks. Chrome shows a "coolkit Copilot started debugging this browser" bar while that runs. It detaches as soon as
+filling is done. Legal consent and agreement questions (arbitration, attestations, terms) are never answered for you.
