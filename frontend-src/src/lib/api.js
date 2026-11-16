@@ -109,6 +109,7 @@ export const api = {
   getSearchConfig: () => request('/settings/search-config'),
   saveSearchConfig: (data) => request('/settings/search-config', { method: 'POST', body: JSON.stringify(data) }),
   saveSMTP: (data) => request('/settings/smtp', { method: 'POST', body: JSON.stringify(data) }),
+  saveNvidia: (data) => request('/settings/nvidia', { method: 'POST', body: JSON.stringify(data) }),
   saveGemini: (data) => request('/settings/gemini', { method: 'POST', body: JSON.stringify(data) }),
   testEmail: () => request('/settings/test-email', { method: 'POST' }),
   uploadResume: (file) => {

@@ -9,7 +9,7 @@ Full-stack job hunting automation -- scrapes 140+ sources, LLM-powered extractio
 - **Auto-apply** handles LinkedIn Easy Apply end-to-end -- LLM-driven form filling, resume variant selection, daily quotas, and full application history.
 - **Cold email outreach** with AI-personalized emails, IMAP reply detection, follow-up automation, A/B testing, and send-time optimization.
 - **React dashboard** for pipeline tracking, analytics, skills intelligence, and AI tools (JD evaluation, company deep-dive, CV tailoring, interview prep).
-- Works fully offline with Ollama for LLM tasks. Gemini API is an optional fallback. Designed for a solo job seeker but extensible.
+- Works fully offline with Ollama for LLM tasks. NVIDIA API (OpenAI-compatible chat completions) and Gemini API are optional cloud providers. Designed for a solo job seeker but extensible.
 
 ## Features
 
@@ -34,7 +34,7 @@ python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
 ollama pull qwen2.5:7b          # local LLM (4.7GB, optional but recommended)
-cp config/.env.example config/.env   # add your GEMINI_API_KEY, SMTP creds
+cp config/env.example config/.env   # add NVIDIA_API_KEY and/or GEMINI_API_KEY, SMTP creds
 ./run.sh                        # starts backend :8000 + frontend :5173
 ```
 
@@ -52,13 +52,13 @@ See the full [Setup Guide](docs/SETUP_GUIDE.md) for detailed configuration.
 
 ```
 React SPA (:5173) --> /api proxy --> FastAPI (:8000) --> Playwright (browser automation)
-                                         |-----------> Ollama / Gemini (LLM extraction)
+                                         |-----------> Ollama / NVIDIA / Gemini (LLM)
                                          |-----------> SQLite (data/linkedin_jobs.db)
                                          |-----------> Gmail SMTP/IMAP (email outreach)
 ```
 
 - **Threading**: Dedicated browser thread (Playwright), daemon threads for scraping/email/auto-apply, thread-local SQLite connections.
-- **LLM chain**: Ollama (local, free, offline) -> Gemini API (cloud fallback) -> Regex (last resort).
+- **LLM chain**: Ollama (local, free, offline) -> cloud LLM (NVIDIA API if `NVIDIA_API_KEY` is set, otherwise Gemini) -> Regex (last resort).
 - **Frontend polling**: 2-5s intervals for real-time status updates. No WebSocket.
 
 See the full [Architecture](docs/ARCHITECTURE.md) documentation.
@@ -81,7 +81,7 @@ coolkit/
     scrapers/                 # Scraping engines (linkedin_jobs, linkedin_posts,
                               #   api_scrapers, web_scrapers, generic_scrapers)
     extractors/               # LLM extraction pipeline (text, fitness, pipeline)
-    llm/                      # LLM client abstraction (Ollama + Gemini)
+    llm/                      # LLM client abstraction (Ollama + NVIDIA + Gemini)
     email_finder/             # Email discovery (enrichment, strategies, cron)
   frontend-src/
     src/
@@ -91,7 +91,7 @@ coolkit/
       components/             # Sidebar, BrowserBar, ConnectGate, FilterBar, PageTabs
       lib/api.js              # All API endpoint definitions
   frontend/                   # Built static assets (served in production)
-  config/                     # .env file (secrets, API keys)
+  config/                     # env.example template; local .env (gitignored)
   scripts/                    # Utility scripts (test sources, scraping tools)
   data/                       # SQLite database, logs, scrape results
   docs/                       # Full documentation
@@ -118,10 +118,19 @@ coolkit/
 | **Frontend** | React 19, Vite 8, TailwindCSS 4, React Router 7, Lucide React |
 | **Infrastructure** | Gmail SMTP/IMAP, DuckDuckGo Search, python-dotenv, Rich (CLI output) |
 
+## Configuration
+
+Copy `config/env.example` to `config/.env`. Keys can also be set from the dashboard Settings page.
+
+| Variable | Purpose |
+|----------|---------|
+| `NVIDIA_API_KEY`, `NVIDIA_MODEL` | Optional NVIDIA cloud LLM (preferred cloud provider when set) |
+| `GEMINI_API_KEY` | Optional Gemini cloud LLM (fallback) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `FROM_EMAIL`, `FROM_NAME` | Outbound email |
+| `IMAP_HOST`, `IMAP_PORT` | Reply detection (optional) |
+| `HUNTER_API_KEY` | Email enrichment (optional) |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | TTS (optional) |
+
 ## Contributing
 
 Contributions are welcome. Routes are thin wrappers -- business logic goes in `backend/services/`. Frontend uses React hooks and Context (Toast only), no Redux. Dark theme with purple accent (`#A855F7`).
-
-## License
-
-This project is licensed under [LICENSE] -- see the LICENSE file for details.

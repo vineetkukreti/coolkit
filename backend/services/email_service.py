@@ -462,10 +462,8 @@ def _build_email_input(post_data: dict) -> str:
 
 
 def _generate_email_with_gemini(post_data: dict) -> dict:
-    """Generate personalized cold email using Gemini 2.5 Flash Lite (cheapest)."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY not set in .env")
+    """Generate personalized cold email using cloud LLM (NVIDIA NIM primary, Gemini fallback)."""
+    from llm.client import call_cloud_llm
 
     input_block = _build_email_input(post_data)
     prompt = f"{EMAIL_AGENT_PROMPT}\n\n━━━ INPUT DATA FOR THIS EMAIL ━━━\n\n{input_block}\n\nGenerate the email now."
@@ -479,31 +477,13 @@ def _generate_email_with_gemini(post_data: dict) -> dict:
         if contact:
             prompt += f"\n\nCONNECTION AT COMPANY: You know {contact.get('name', 'someone')} ({contact.get('headline', '')}) at this company. {contact.get('detail', '')}. Reference this connection naturally to establish warmth — don't be creepy, just mention it briefly."
 
-    resp = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 400,
-                "topP": 0.9,
-            },
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    candidates = data.get("candidates")
-    if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
-        return {"subject": "", "body": "", "error": "Gemini returned no candidates"}
-    content = candidates[0].get("content")
-    if not content or not content.get("parts") or len(content["parts"]) == 0:
-        return {"subject": "", "body": "", "error": "Gemini response missing content parts"}
-    text = content["parts"][0].get("text", "")
-    if not text:
-        return {"subject": "", "body": "", "error": "Gemini returned empty text"}
-
-    return _parse_generated_email(text, post_data)
+    try:
+        text = call_cloud_llm(prompt, max_tokens=1000, temperature=0.7)
+        if not text:
+            return {"subject": "", "body": "", "error": "LLM returned empty text"}
+        return _parse_generated_email(text, post_data)
+    except Exception as e:
+        return {"subject": "", "body": "", "error": str(e)}
 
 
 def _generate_email_with_ollama(post_data: dict) -> dict:
@@ -1339,27 +1319,14 @@ Subject: [subject line]
 Body: [email body]
 """
 
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if api_key:
-        try:
-            resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0.7,
-                        "maxOutputTokens": 300,
-                    },
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-            result = _parse_generated_email(text, {"author_name": "", "company": company, "role": role})
-            if result:
-                return result
-        except Exception:
-            pass
+    try:
+        from llm.client import call_cloud_llm
+        text = call_cloud_llm(prompt, max_tokens=600, temperature=0.7)
+        result = _parse_generated_email(text, {"author_name": "", "company": company, "role": role})
+        if result and (result.get("body") or result.get("subject")):
+            return result
+    except Exception:
+        pass
 
     # Fallback template
     return {

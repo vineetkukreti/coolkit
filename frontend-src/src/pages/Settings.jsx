@@ -10,6 +10,7 @@ import {
   EyeOff,
   AlertCircle,
   Sparkles,
+  Cpu,
   Server,
   User,
   Globe,
@@ -464,7 +465,14 @@ export default function Settings() {
   const [showPassword, setShowPassword] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
 
-  // Gemini
+  // NVIDIA & Gemini
+  const [nvidiaKey, setNvidiaKey] = useState('')
+  const [nvidiaSet, setNvidiaSet] = useState(false)
+  const [nvidiaPreview, setNvidiaPreview] = useState('')
+  const [nvidiaModel, setNvidiaModel] = useState('minimaxai/minimax-m3.1-flash')
+  const [nvidiaSaving, setNvidiaSaving] = useState(false)
+  const [showNvidiaKey, setShowNvidiaKey] = useState(false)
+
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiSet, setGeminiSet] = useState(false)
   const [geminiPreview, setGeminiPreview] = useState('')
@@ -506,6 +514,12 @@ export default function Settings() {
           smtp_password: '',
         }))
         setSmtpConfigured(data.smtp.smtp_password_set)
+      }
+
+      if (data.nvidia) {
+        setNvidiaSet(data.nvidia.api_key_set)
+        setNvidiaPreview(data.nvidia.api_key_preview || '')
+        if (data.nvidia.model) setNvidiaModel(data.nvidia.model)
       }
 
       if (data.gemini) {
@@ -587,6 +601,22 @@ export default function Settings() {
       toast({ title: 'Connection failed', description: e.message, type: 'error' })
     } finally {
       setTestingConnection(false)
+    }
+  }
+
+  async function saveNvidia() {
+    if (!nvidiaKey.trim()) return
+    setNvidiaSaving(true)
+    try {
+      await api.saveNvidia({ api_key: nvidiaKey.trim(), model: nvidiaModel })
+      setNvidiaSet(true)
+      setNvidiaPreview(nvidiaKey.trim().slice(0, 8) + '...')
+      setNvidiaKey('')
+      toast({ title: 'NVIDIA API key saved', description: 'NVIDIA NIM is now active for AI operations.', type: 'success' })
+    } catch (e) {
+      toast({ title: 'Save failed', description: e.message, type: 'error' })
+    } finally {
+      setNvidiaSaving(false)
     }
   }
 
@@ -1014,6 +1044,62 @@ export default function Settings() {
               </Card>
 
               <EmailConfigStatus />
+
+              {/* NVIDIA NIM API */}
+              <Card
+                title="NVIDIA NIM API Key (Primary AI Engine)"
+                icon={Cpu}
+                badge={
+                  nvidiaSet ? (
+                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-success-bg text-success text-xs font-medium border border-success/30">
+                      <CheckCircle2 size={11} />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-danger-bg text-danger text-xs font-medium border border-danger/30">
+                      <AlertCircle size={11} />
+                      Not Set
+                    </span>
+                  )
+                }
+              >
+                {nvidiaSet && (
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-fg-muted text-xs font-mono">{nvidiaPreview}</p>
+                    <span className="text-[11px] px-2 py-0.5 rounded bg-bg-secondary text-accent font-mono border border-border">
+                      {nvidiaModel}
+                    </span>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type={showNvidiaKey ? 'text' : 'password'}
+                      value={nvidiaKey}
+                      onChange={(e) => setNvidiaKey(e.target.value)}
+                      placeholder={nvidiaSet ? 'Enter new key to replace...' : 'nvapi-...'}
+                      className="w-full bg-bg-tertiary border border-border rounded-lg text-fg-primary text-sm font-mono px-3.5 py-2.5 pr-10 focus:outline-none focus:border-accent placeholder:text-fg-muted"
+                    />
+                    <button
+                      onClick={() => setShowNvidiaKey(!showNvidiaKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-primary"
+                    >
+                      {showNvidiaKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={saveNvidia}
+                    disabled={nvidiaSaving || !nvidiaKey.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-accent hover:bg-accent/90 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 flex-shrink-0"
+                  >
+                    {nvidiaSaving ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
+                    Save
+                  </button>
+                </div>
+                <p className="text-fg-muted text-xs mt-2">
+                  Powers all job evaluations, cold emails, resume tailoring, and interview prep via NVIDIA NIM.
+                </p>
+              </Card>
 
               {/* Gemini API */}
               <Card

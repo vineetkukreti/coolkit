@@ -331,28 +331,23 @@ Reply ONLY with valid JSON, no markdown."""
 
 
 def llm_extract_skills(content: str) -> dict | None:
-    """Use Gemini to extract structured skills from job content."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        return None
-
+    """Use cloud LLM (NVIDIA primary, Gemini fallback) to extract structured skills from job content."""
     try:
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
-            json={
-                "contents": [{"parts": [{"text": _SKILLS_PROMPT.format(content=content[:3000])}]}],
-                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 800},
-            },
-            timeout=15,
-        )
-        if resp.status_code != 200:
+        from llm.client import call_cloud_llm
+        prompt = _SKILLS_PROMPT.format(content=content[:3000])
+        text = call_cloud_llm(prompt, max_tokens=1000, temperature=0.1)
+        if not text:
             return None
 
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
         text = text.strip()
         if text.startswith("```"):
             text = re.sub(r"^```\w*\n?", "", text)
             text = re.sub(r"\n?```$", "", text)
+        else:
+            s = text.find("{")
+            e = text.rfind("}")
+            if s != -1 and e != -1 and e > s:
+                text = text[s:e+1]
         return json.loads(text)
     except Exception as e:
         log.debug(f"LLM extraction error: {e}")
@@ -424,7 +419,7 @@ def run_full_analysis(conn: sqlite3.Connection, use_llm: bool = False, llm_sampl
             analysis_state["processed"] = total
 
         # Phase 2: LLM enrichment (optional)
-        if use_llm and os.getenv("GEMINI_API_KEY"):
+        if use_llm and (os.getenv("NVIDIA_API_KEY") or os.getenv("GEMINI_API_KEY")):
             with _analysis_lock:
                 analysis_state["phase"] = "llm_enrichment"
                 analysis_state["processed"] = 0
@@ -783,22 +778,11 @@ _CACHE_TTL = timedelta(hours=24)
 
 
 def _call_gemini(prompt: str, max_tokens: int = 2000) -> str | None:
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        return None
     try:
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.7, "maxOutputTokens": max_tokens},
-            },
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        from llm.client import call_cloud_llm
+        return call_cloud_llm(prompt, max_tokens=max_tokens, temperature=0.7)
     except Exception as e:
-        log.debug(f"Gemini call error: {e}")
+        log.debug(f"LLM call error: {e}")
     return None
 
 

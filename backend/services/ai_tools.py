@@ -15,30 +15,26 @@ RESUME_SKILLS_LIST = ", ".join(RESUME_SKILLS.keys())
 # ---------------------------------------------------------------------------
 
 
+from llm.client import call_cloud_llm
+
+
 def _call_gemini(prompt: str, max_tokens: int = 1000, temperature: float = 0.7) -> str:
-    """Call Gemini API and return text response."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY not set")
-    resp = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens, "topP": 0.9},
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    """Call cloud LLM (NVIDIA NIM primary, Gemini fallback) and return text response."""
+    return call_cloud_llm(prompt, max_tokens=max_tokens, temperature=temperature)
 
 
 def _parse_json_response(text: str) -> dict:
-    """Extract JSON from Gemini response that may have markdown code blocks."""
+    """Extract JSON from LLM response that may have markdown code blocks."""
     text = text.strip()
     if "```json" in text:
         text = text.split("```json")[1].split("```")[0]
     elif "```" in text:
         text = text.split("```")[1].split("```")[0]
+    else:
+        s = text.find("{")
+        e = text.rfind("}")
+        if s != -1 and e != -1 and e > s:
+            text = text[s:e+1]
     return json.loads(text.strip())
 
 

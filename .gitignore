@@ -49,3 +49,14 @@ node_modules/
 
 # Memory (personal notes)
 memory/
+
+# Extra hygiene
+.env*
+!.env.example
+*.env
+!env.example
+.pytest_cache/
+dist/
+build/
+test-results/
+playwright-report/

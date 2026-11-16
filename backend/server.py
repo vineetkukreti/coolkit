@@ -238,8 +238,10 @@ if not _os.getenv("SMTP_USER"): _missing.append("SMTP_USER")
 if not _os.getenv("SMTP_PASSWORD"): _missing.append("SMTP_PASSWORD")
 if _missing:
     print(f"[WARN] Missing env vars: {', '.join(_missing)} — email features disabled")
-if not _os.getenv("GEMINI_API_KEY"):
-    print(f"[WARN] GEMINI_API_KEY not set — AI email generation will fail")
+if not _os.getenv("NVIDIA_API_KEY") and not _os.getenv("GEMINI_API_KEY"):
+    print(f"[WARN] Neither NVIDIA_API_KEY nor GEMINI_API_KEY is set — AI operations will fail")
+elif _os.getenv("NVIDIA_API_KEY"):
+    print(f"[INFO] AI Engine active: NVIDIA NIM ({_os.getenv('NVIDIA_MODEL', 'minimaxai/minimax-m3.1-flash')})")
 
 # ───────────────────────────────────────────────
 # Register all route modules

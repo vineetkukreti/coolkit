@@ -129,11 +129,9 @@ def scan_company(company: str, conn: sqlite3.Connection = None) -> dict:
             cached["from_cache"] = True
             return cached
 
-    # Call Gemini for quick assessment
+    # Call cloud LLM for quick assessment
     try:
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if not api_key:
-            return {"signal": "yellow", "score_modifier": 0, "reasons": ["no API key"], "company": company}
+        from llm.client import call_cloud_llm
 
         prompt = f"""Quickly assess this company's hiring health for a job seeker. Return ONLY valid JSON.
 
@@ -160,16 +158,7 @@ Rules:
 - If you don't know the company, return "yellow" with reason "insufficient data"
 - Be honest, don't guess if you don't know"""
 
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 300},
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        text = call_cloud_llm(prompt, max_tokens=800, temperature=0.2)
 
         # Parse JSON
         text = text.strip()
@@ -177,6 +166,11 @@ Rules:
             text = text.split("```json")[1].split("```")[0]
         elif "```" in text:
             text = text.split("```")[1].split("```")[0]
+        else:
+            s = text.find("{")
+            e = text.rfind("}")
+            if s != -1 and e != -1 and e > s:
+                text = text[s:e+1]
         data = json.loads(text.strip())
 
         signal = data.get("signal", "yellow")

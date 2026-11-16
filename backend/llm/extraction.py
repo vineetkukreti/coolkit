@@ -105,23 +105,21 @@ def ollama_extract(content: str) -> dict:
 
 
 def gemini_extract(content: str) -> dict:
-    """Extract job info using Gemini API."""
+    """Extract job info using cloud LLM (NVIDIA/Gemini)."""
     prompt = _LLM_PROMPT + f"Post: {content[:1500]}\n\n" + 'JSON: {"role":"","company":"","location":"","experience":"","work_mode":""}'
-    raw = llm.call_gemini(prompt, max_tokens=200)
+    raw = llm.call(prompt, max_tokens=400)
     return _parse_llm_response(raw) if raw else {}
 
 
 def llm_extract(content: str) -> dict:
-    """Extract job info using Ollama (primary) or Gemini (fallback)."""
+    """Extract job info using Ollama (primary local) or cloud LLM (fallback)."""
     result = ollama_extract(content)
     if result:
         return result
 
-    from llm.client import GEMINI_API_KEY
-    if GEMINI_API_KEY and llm.gemini_ok is not False:
-        result = gemini_extract(content)
-        if result:
-            return result
+    result = gemini_extract(content)
+    if result:
+        return result
 
     return {}
 
@@ -140,7 +138,7 @@ def llm_extract_emails(content: str) -> list[str]:
         return []
 
     prompt = _EMAIL_DEOBFUSCATION_PROMPT + f"Text: {content[:800]}\n\nJSON:"
-    raw = llm.call_gemini(prompt, max_tokens=100)
+    raw = llm.call(prompt, max_tokens=300)
 
     if raw:
         try:

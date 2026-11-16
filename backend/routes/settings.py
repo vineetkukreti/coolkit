@@ -137,6 +137,11 @@ class SmtpUpdate(BaseModel):
     from_name: str = ""
 
 
+class NvidiaUpdate(BaseModel):
+    api_key: str
+    model: str = "minimaxai/minimax-m3.1-flash"
+
+
 class GeminiUpdate(BaseModel):
     api_key: str
 
@@ -163,6 +168,11 @@ def api_get_all_settings():
             "smtp_password_set": bool(env.get("SMTP_PASSWORD", "")),
             "from_email": env.get("FROM_EMAIL", ""),
             "from_name": env.get("FROM_NAME", ""),
+        },
+        "nvidia": {
+            "api_key_set": bool(env.get("NVIDIA_API_KEY", "")),
+            "api_key_preview": (env.get("NVIDIA_API_KEY", "")[:8] + "...") if env.get("NVIDIA_API_KEY") else "",
+            "model": env.get("NVIDIA_MODEL", "minimaxai/minimax-m3.1-flash"),
         },
         "gemini": {
             "api_key_set": bool(env.get("GEMINI_API_KEY", "")),
@@ -233,6 +243,16 @@ def api_save_gemini(req: GeminiUpdate, request: Request):
     _update_env(GEMINI_API_KEY=req.api_key)
     os.environ["GEMINI_API_KEY"] = req.api_key
     return {"status": "ok", "message": "Gemini API key saved"}
+
+
+@router.post("/api/settings/nvidia")
+def api_save_nvidia(req: NvidiaUpdate, request: Request):
+    """Save NVIDIA API key and model to .env."""
+    _check_settings_token(request)
+    _update_env(NVIDIA_API_KEY=req.api_key, NVIDIA_MODEL=req.model)
+    os.environ["NVIDIA_API_KEY"] = req.api_key
+    os.environ["NVIDIA_MODEL"] = req.model
+    return {"status": "ok", "message": "NVIDIA API settings saved"}
 
 
 @router.get("/api/settings/search-config")

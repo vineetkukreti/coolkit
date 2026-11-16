@@ -79,9 +79,7 @@ def generate_ab_variants(job: dict) -> dict:
 
     Returns {"A": {"subject": ..., "body": ...}, "B": {"subject": ..., "body": ...}}
     """
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        return {"error": "GEMINI_API_KEY not set"}
+    from llm.client import call_cloud_llm
 
     role = job.get("role", "AI/ML role")
     company = job.get("company", "the company")
@@ -116,16 +114,7 @@ Subject: <subject line>
 <email body>"""
 
         try:
-            resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.8, "maxOutputTokens": 400},
-                },
-                timeout=20,
-            )
-            resp.raise_for_status()
-            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            text = call_cloud_llm(prompt, max_tokens=1000, temperature=0.8).strip()
 
             # Parse subject and body
             subject = ""
